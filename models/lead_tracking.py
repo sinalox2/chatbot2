@@ -200,7 +200,10 @@ class Lead:
             self.temperatura = TemperaturaMercado.FRIO
     
     def dias_sin_interaccion(self) -> int:
-        return (datetime.now() - self.ultima_interaccion).days
+        ahora = datetime.now().astimezone()
+        if self.ultima_interaccion:
+            return (ahora - self.ultima_interaccion).days
+        return 0
     
     def to_dict(self):
         return {
