@@ -19,8 +19,6 @@ def obtener_historial_conversacion(telefono, nombre_tabla="historial_conversacio
         print("❌ Error al obtener historial:", e)
         return []
 
-
-
 # Función para insertar datos en una tabla de Supabase
 def insertar_en_tabla(nombre_tabla, datos):
     try:
@@ -44,7 +42,6 @@ def insertar_historial(telefono, mensaje, respuesta, timestamp, nombre_tabla="hi
         "timestamp": timestamp
     }
     return insertar_en_tabla(nombre_tabla, datos)
-
 
 # Función para verificar si un lead ya existe por número de teléfono
 def existe_lead(nombre_tabla, telefono):
@@ -76,14 +73,12 @@ def insertar_lead(nombre_tabla, telefono, nombre, fecha_entrada, modelo_interes,
         print("❌ Error al insertar o actualizar lead en Supabase:", e)
         return False
 
-
-# Alias para mantener consistencia con nombres en otros archivos
+# CORREGIDO: Función que coincide con el uso en app.py
 def insertar_en_tabla_leads(telefono, nombre, fecha_entrada, modelo_interes, canal, nombre_tabla="leads_nissan"):
     return insertar_lead(nombre_tabla, telefono, nombre, fecha_entrada, modelo_interes, canal)
 
 def insertar_en_historial(telefono, mensaje, respuesta, timestamp, nombre_tabla="historial_conversaciones"):
     return insertar_historial(telefono, mensaje, respuesta, timestamp, nombre_tabla)
-
 
 # Función para guardar datos adicionales de leads en otra tabla
 def guardar_info_adicional(nombre_tabla, telefono, campo, valor):
@@ -102,3 +97,14 @@ def guardar_info_adicional(nombre_tabla, telefono, campo, valor):
     except Exception as e:
         print(f"❌ Error al guardar {campo} adicional del lead:", e)
         return False
+
+# Alias adicional para mantener compatibilidad
+def guardar_lead(datos, nombre_tabla="leads_nissan"):
+    return insertar_lead(
+        nombre_tabla,
+        datos.get("telefono"),
+        datos.get("nombre", "desconocido"),
+        datos.get("fecha_entrada"),
+        datos.get("modelo_interes", "desconocido"),
+        datos.get("canal", "whatsapp")
+    )
