@@ -280,37 +280,85 @@ def construir_contexto_conversacion_mejorado(telefono, mensaje_actual):
             {"role": "user", "content": mensaje_actual}
         ], None
 
-def generar_respuesta_con_memoria_mejorada(mensaje, telefono, lead_info):
-    """Genera respuesta usando OpenAI con memoria mejorada y contexto enriquecido"""
+def generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info, siguiente_paso):
+    """Genera respuesta con OpenAI considerando el contexto y siguiente paso"""
     try:
+        # Construir contexto base
         messages, lead_info_completa = construir_contexto_conversacion_mejorado(telefono, mensaje)
         
-        if lead_info_completa:
-            lead_info_actual = lead_info_completa
-        else:
-            lead_info_actual = lead_info
+        # Agregar instrucciones específicas según la acción
+        instrucciones_extra = ""
         
-        contexto_rag = recuperar_contexto(mensaje)
+        if siguiente_paso:
+            accion = siguiente_paso.get('accion', '')
+            
+            if accion == 'saludo_inicial':
+                instrucciones_extra = """
+                INSTRUCCIÓN: Es el primer contacto. Saluda de forma amigable y casual.
+                NO preguntes todo de jalón. Solo menciona que vendes Nissan y pregunta 
+                qué le interesa o en qué le puedes ayudar.
+                """
+            
+            elif accion == 'obtener_info_sutil':
+                info_faltante = siguiente_paso.get('info_faltante', '')
+                if info_faltante == 'uso_vehiculo':
+                    instrucciones_extra = """
+                    INSTRUCCIÓN: En algún momento natural de la conversación, 
+                    pregunta sutilmente si el carro es para uso personal o trabajo.
+                    Pero NO lo hagas de forma directa o robótica.
+                    """
+                elif info_faltante == 'monto_enganche':
+                    instrucciones_extra = """
+                    INSTRUCCIÓN: Menciona casualmente los enganches y pregunta
+                    si ya tiene idea de cuánto podría dar de entrada.
+                    Hazlo parte natural de la plática, no como interrogatorio.
+                    """
+            
+            elif accion == 'responder_precio':
+                instrucciones_extra = """
+                INSTRUCCIÓN: El cliente pregunta por precios. Dale rangos generales
+                y menciona que depende del modelo y plan de financiamiento.
+                Invítalo a platicar más detalles.
+                """
+            
+            elif accion == 'conversacion_natural':
+                instrucciones_extra = """
+                INSTRUCCIÓN: Mantén una conversación natural y amigable.
+                NO forces preguntas de calificación. Solo platica y ve conociendo
+                al cliente poco a poco.
+                """
+            
+            elif accion == 'cerrar_cita':
+                instrucciones_extra = """
+                INSTRUCCIÓN: El cliente está interesado. Propón una cita o llamada
+                de forma entusiasta pero sin presionar. Dale opciones.
+                """
         
-        if contexto_rag and len(messages) > 0:
-            messages[0]['content'] += f"\n\n📚 INFORMACIÓN DE PRODUCTOS:\n{contexto_rag}"
+        # Agregar instrucciones al prompt del sistema
+        if instrucciones_extra and len(messages) > 0:
+            messages[0]['content'] += f"\n\n🎯 CONTEXTO ACTUAL:\n{instrucciones_extra}"
         
-        temperatura = 0.7
-        if lead_info_actual and isinstance(lead_info_actual, dict):
-            if lead_info_actual.get('temperatura') == 'caliente':
-                temperatura = 0.6
-            elif lead_info_actual.get('temperatura') == 'frio':
-                temperatura = 0.8
+        # Agregar recordatorio de NO ser repetitivo
+        if len(messages) > 0:
+            messages[0]['content'] += """
+            
+            ⚠️ IMPORTANTE: NUNCA repitas preguntas que ya hiciste.
+            Revisa el historial y si ya tienes información, NO la vuelvas a pedir.
+            Si el cliente ya te dio el enganche, NO preguntes por el enganche otra vez.
+            Sé creativo y varía tus respuestas.
+            """
         
+        # Generar respuesta
         completion = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             max_tokens=150,
-            temperature=temperatura
+            temperature=0.8  # Más creatividad para evitar repeticiones
         )
         
         respuesta = completion.choices[0].message.content.strip()
         
+        # Guardar en historial
         if supabase:
             try:
                 supabase.table('historial_conversaciones').insert({
@@ -319,27 +367,21 @@ def generar_respuesta_con_memoria_mejorada(mensaje, telefono, lead_info):
                     'respuesta': respuesta,
                     'timestamp': datetime.now().isoformat()
                 }).execute()
-                print(f"✅ Guardado en historial_conversaciones: {telefono}")
             except Exception as e:
-                print(f"⚠️ Error guardando en historial_conversaciones: {e}")
+                print(f"⚠️ Error guardando historial: {e}")
         
         return respuesta
         
     except Exception as e:
-        print(f"❌ Error generando respuesta con memoria mejorada: {e}")
-        nombre = 'amigo'
-        if isinstance(lead_info, dict):
-            nombre = lead_info.get('nombre', 'amigo')
-        elif hasattr(lead_info, 'nombre'):
-            nombre = lead_info.nombre
-        return f"Hola {nombre}! 😁 Disculpa, ¿puedes repetir tu pregunta? Te ayudo con gusto."
+        print(f"❌ Error generando respuesta inteligente: {e}")
+        return "¡Ups! 😁 Se me fue la onda... ¿Me repites qué necesitas?"
 
 def generar_respuesta_openai(mensaje, lead_info, telefono=None):
     """Genera respuesta usando OpenAI - SIEMPRE con memoria mejorada"""
     
     if telefono:
         print(f"🧠 Usando memoria mejorada para: {telefono}")
-        return generar_respuesta_con_memoria_mejorada(mensaje, telefono, lead_info)
+        return generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info)
     
     try:
         prompt_sistema = obtener_prompt_sistema_mejorado()
@@ -369,17 +411,57 @@ def generar_respuesta_openai(mensaje, lead_info, telefono=None):
         return f"Hola {nombre}! 😁 Disculpa, tuve un pequeño problema. ¿Puedes repetir tu pregunta?"
 
 class LeadManager:
-    """Manager completo para leads con seguimiento"""
-    
-    def __init__(self, lead_tracker):
+    """
+    Clase base para manejo de leads.
+    Define la interfaz común para todos los managers de leads.
+    """
+    def __init__(self, lead_tracker=None):
         self.lead_tracker = lead_tracker
-    
+
+    def procesar_mensaje_lead(self, telefono, mensaje, nombre_perfil):
+        """
+        Procesa un mensaje entrante de un lead.
+        Debe ser implementado por las clases hijas.
+        """
+        raise NotImplementedError("Las clases hijas deben implementar este método")
+
+    def extraer_informacion_mensaje(self, mensaje, lead):
+        """
+        Extrae información relevante del mensaje.
+        Debe ser implementado por las clases hijas.
+        """
+        raise NotImplementedError("Las clases hijas deben implementar este método")
+
+    def determinar_siguiente_paso(self, lead, mensaje):
+        """
+        Determina el siguiente paso en el flujo de ventas.
+        Debe ser implementado por las clases hijas.
+        """
+        raise NotImplementedError("Las clases hijas deben implementar este método")
+
+    def programar_seguimiento_automatico(self, lead):
+        """
+        Programa seguimiento automático para el lead.
+        Debe ser implementado por las clases hijas.
+        """
+        raise NotImplementedError("Las clases hijas deben implementar este método")
+
+# INICIO: Clase ConversationalLeadManager (reemplazo completo)
+class ConversationalLeadManager(LeadManager):
+    """
+    Manager conversacional avanzado para leads, integrando análisis de mensajes,
+    extracción de información, lógica de flujo conversacional y soporte para memoria.
+    """
+    def __init__(self, lead_tracker, seguimiento_auto=None):
+        self.lead_tracker = lead_tracker
+        self.seguimiento_auto = seguimiento_auto
+
     def procesar_mensaje_lead(self, telefono, mensaje, nombre_perfil):
         lead = self.lead_tracker.obtener_lead(telefono)
         if not lead:
             lead = self.lead_tracker.crear_lead(telefono, nombre_perfil, "whatsapp")
             print(f"✅ Nuevo lead creado: {telefono}")
-        
+
         interaccion = Interaccion(
             telefono=telefono,
             tipo=TipoInteraccion.MENSAJE_ENTRANTE,
@@ -388,41 +470,39 @@ class LeadManager:
             usuario='cliente'
         )
         self.lead_tracker.registrar_interaccion(interaccion)
-        
+
         info_extraida = self.extraer_informacion_mensaje(mensaje, lead)
-        
         if info_extraida:
             for campo, valor in info_extraida.items():
                 self.lead_tracker.actualizar_info_prospecto(telefono, campo, valor)
                 print(f"📝 Actualizado {campo}: {valor}")
-        
+
         siguiente_paso = self.determinar_siguiente_paso(lead, mensaje)
-        
         if siguiente_paso.get('nuevo_estado'):
             self.lead_tracker.cambiar_estado(
-                telefono, 
-                siguiente_paso['nuevo_estado'], 
+                telefono,
+                siguiente_paso['nuevo_estado'],
                 siguiente_paso.get('notas', '')
             )
-        
+
         return lead, siguiente_paso
 
     def extraer_informacion_mensaje(self, mensaje, lead):
-        """Extrae información específica del mensaje - VERSIÓN MEJORADA"""
+        """
+        Extrae información relevante del mensaje del cliente para enriquecer el lead.
+        """
         info_extraida = {}
         mensaje_lower = mensaje.lower()
-
-        # Debugging
         print(f"📝 Extrayendo info de: {mensaje}")
 
-        # Extraer uso del vehículo
+        # Uso del vehículo
         if not lead.info_prospecto.uso_vehiculo:
             if any(word in mensaje_lower for word in ['particular', 'personal', 'familia', 'casa', 'diario']):
                 info_extraida['uso_vehiculo'] = 'particular'
             elif any(word in mensaje_lower for word in ['trabajo', 'uber', 'didi', 'taxi', 'negocio', 'comercial', 'chambear', 'chamba']):
                 info_extraida['uso_vehiculo'] = 'trabajo'
 
-        # Extraer comprobación de ingresos
+        # Comprobación de ingresos
         if not lead.info_prospecto.comprobacion_ingresos:
             if any(word in mensaje_lower for word in ['nomina', 'nómina', 'formal', 'empresa', 'empleado', 'recibo', 'comprobante']):
                 info_extraida['comprobacion_ingresos'] = 'formal'
@@ -431,30 +511,24 @@ class LeadManager:
             elif any(word in mensaje_lower for word in ['no tengo', 'sin ingresos', 'no compruebo', 'no puedo comprobar']):
                 info_extraida['comprobacion_ingresos'] = 'ninguna'
 
-        # Extraer monto de enganche - MEJORADO
+        # Monto de enganche
         if not lead.info_prospecto.monto_enganche:
-            # Buscar números con o sin formato
             numeros = re.findall(r'\d+(?:,\d{3})*(?:\.\d{2})?', mensaje.replace(' ', ''))
             if numeros:
                 for numero in numeros:
                     try:
-                        # Limpiar el número
                         numero_limpio = numero.replace(',', '').replace('.', '')
                         monto = float(numero_limpio)
-
-                        # Si es un número entre 100 y 999, probablemente son miles
                         if 100 <= monto <= 999:
                             monto *= 1000
-
-                        # Solo considerar montos razonables para enganche (5k - 500k)
                         if 5000 <= monto <= 500000:
                             info_extraida['monto_enganche'] = monto
                             print(f"💰 Enganche detectado: ${monto:,.0f}")
                             break
-                    except:
+                    except Exception:
                         pass
 
-        # Extraer historial crediticio
+        # Historial crediticio
         if not lead.info_prospecto.historial_credito:
             if any(word in mensaje_lower for word in ['bueno', 'bien', 'excelente', 'sin problemas', 'limpio', 'al corriente']):
                 info_extraida['historial_credito'] = 'bueno'
@@ -463,14 +537,14 @@ class LeadManager:
             elif any(word in mensaje_lower for word in ['malo', 'mal', 'problemas', 'buro', 'buró', 'deudas', 'atrasado']):
                 info_extraida['historial_credito'] = 'malo'
 
-        # Extraer modelo de interés
+        # Modelo de interés
         modelos_nissan = ['sentra', 'versa', 'march', 'frontier', 'kicks', 'x-trail', 'pathfinder', 'altima', 'murano', 'rogue']
         for modelo in modelos_nissan:
             if modelo in mensaje_lower:
                 info_extraida['modelo_interes'] = modelo.title()
                 break
 
-        # Extraer urgencia de compra
+        # Urgencia de compra
         if any(word in mensaje_lower for word in ['ya', 'pronto', 'inmediato', 'rapido', 'rápido', 'urgente', 'ahorita']):
             info_extraida['urgencia_compra'] = 'inmediata'
         elif any(word in mensaje_lower for word in ['mes', 'meses', '3 meses', 'proximamente', 'próximamente']):
@@ -482,15 +556,15 @@ class LeadManager:
         return info_extraida
 
     def determinar_siguiente_paso(self, lead, mensaje):
-        """Determina el siguiente paso en el flujo de ventas - VERSIÓN CORREGIDA"""
+        """
+        Determina el siguiente paso en el flujo de ventas según el estado y la información del lead.
+        """
         mensaje_lower = mensaje.lower()
         info = lead.info_prospecto
-
-        # Debugging
         print(f"📊 Estado Lead: {lead.estado.value}")
         print(f"📊 Info Prospecto: uso={info.uso_vehiculo}, ingresos={info.comprobacion_ingresos}, enganche={info.monto_enganche}, credito={info.historial_credito}")
 
-        # Si el lead ya está calificado o más avanzado, evitar preguntas de calificación
+        # Flujo avanzado según estado
         if lead.estado.value not in ['contacto_inicial', 'calificando']:
             if any(palabra in mensaje_lower for palabra in ['precio', 'cotización', 'modelo', 'plan', 'financiamiento', 'duda', 'consulta', 'versión']):
                 return {
@@ -503,7 +577,7 @@ class LeadManager:
                     'mensaje': f"¡Hola {lead.nombre}! 😄 ¿Cómo vas con la decisión? ¿Tienes alguna duda sobre algún auto o plan?"
                 }
 
-        # Si es primer contacto
+        # Primer contacto
         if lead.estado == EstadoLead.CONTACTO_INICIAL:
             if any(word in mensaje_lower for word in ['hola', 'info', 'informacion', 'precio', 'cotizar']):
                 return {
@@ -512,13 +586,10 @@ class LeadManager:
                     'mensaje': f"¡Qué onda {lead.nombre}! 😁 ¿El auto lo necesitas para chambear o para uso personal?"
                 }
 
-        # Si está en proceso de calificación
+        # Proceso de calificación
         elif lead.estado == EstadoLead.CALIFICANDO:
-            # Verificar qué información falta y preguntar en orden
             if not info.uso_vehiculo:
-                # Si el mensaje contiene información sobre uso
                 if any(word in mensaje_lower for word in ['particular', 'personal', 'familia']):
-                    # La información ya se extrajo, pasar a siguiente pregunta
                     return {
                         'accion': 'solicitar_comprobacion_ingresos',
                         'mensaje': f"Va que va {lead.nombre}... ¿trabajas en empresa o tienes tu negocio?"
@@ -529,14 +600,11 @@ class LeadManager:
                         'mensaje': f"Órale, para la chamba entonces... ¿recibes nómina o cómo le haces con los ingresos?"
                     }
                 else:
-                    # Volver a preguntar si no entendimos
                     return {
                         'accion': 'solicitar_uso_vehiculo',
                         'mensaje': f"¿Para qué ocuparías el carro principalmente, {lead.nombre}? 😁"
                     }
-                    
             elif not info.comprobacion_ingresos:
-                # Si el mensaje contiene info de ingresos
                 if any(word in mensaje_lower for word in ['nomina', 'nómina', 'formal', 'empresa', 'recibo']):
                     return {
                         'accion': 'solicitar_enganche',
@@ -552,12 +620,9 @@ class LeadManager:
                         'accion': 'solicitar_comprobacion_ingresos',
                         'mensaje': f"¿Cómo está tu situación con los comprobantes de ingresos, {lead.nombre}?"
                     }
-                    
             elif not info.monto_enganche:
-                # Si el mensaje contiene números (probable enganche)
                 numeros = re.findall(r'\d+', mensaje)
                 if numeros:
-                    # El monto ya debería estar extraído, pasar a siguiente
                     return {
                         'accion': 'solicitar_buro',
                         'mensaje': f"¡Órale, está bien! 😁 ¿Y cómo andas de buró de crédito?"
@@ -567,9 +632,7 @@ class LeadManager:
                         'accion': 'solicitar_enganche',
                         'mensaje': f"¿Más o menos cuánto tienes guardado para el enganche?"
                     }
-                    
             elif not info.historial_credito:
-                # Si el mensaje contiene info de crédito
                 if any(word in mensaje_lower for word in ['bueno', 'bien', 'excelente', 'limpio']):
                     return {
                         'accion': 'finalizar_calificacion',
@@ -593,16 +656,13 @@ class LeadManager:
                         'accion': 'solicitar_buro',
                         'mensaje': f"¿Todo bien con tu historial o hay algún detalle que deba saber?"
                     }
-            
-            # Si ya tenemos toda la info básica, calificar
             else:
                 return {
                     'accion': 'finalizar_calificacion',
                     'nuevo_estado': EstadoLead.CALIFICADO,
                     'mensaje': f"¡Ya quedó {lead.nombre}! 😁 Tengo varias opciones para ti... ¿te marco ahorita o prefieres que te mande la info por aquí?"
                 }
-    
-        # Si ya está calificado
+
         elif lead.estado == EstadoLead.CALIFICADO:
             if any(word in mensaje_lower for word in ['si', 'sí', 'claro', 'dale', 'órale', 'va', 'llamame', 'llama', 'márcame', 'marca']):
                 return {
@@ -621,8 +681,7 @@ class LeadManager:
                     'accion': 'mantener_interes',
                     'mensaje': f"No hay bronca {lead.nombre}, aquí andamos cuando gustes 😁 ¿Te mando la info de las promos actuales por si acaso?"
                 }
-    
-        # Si está interesado alto
+
         elif lead.estado == EstadoLead.INTERESADO_ALTO:
             if any(word in mensaje_lower for word in ['cita', 'visita', 'agencia', 'ver', 'cuando', 'cuándo']):
                 return {
@@ -635,27 +694,26 @@ class LeadManager:
                     'accion': 'cotizar_modelo',
                     'mensaje': f"¡Buena elección! El {lead.info_prospecto.modelo_interes} está padrísimo 😁 Te mando los números..."
                 }
-    
-        # Default - continuar conversación con IA
+
         return {
             'accion': 'continuar_conversacion',
-            'mensaje': None  # Usar OpenAI para generar respuesta
+            'mensaje': None
         }
 
     def programar_seguimiento_automatico(self, lead):
-        """Programa seguimiento automático basado en el estado del lead"""
-        if not seguimiento_auto:
+        """
+        Programa seguimiento automático basado en el estado del lead.
+        """
+        if not self.seguimiento_auto:
             return
-            
         if lead.temperatura == TemperaturaMercado.CALIENTE:
             dias = 1
         elif lead.temperatura == TemperaturaMercado.TIBIO:
             dias = 2
         else:
             dias = 3
-        
         try:
-            seguimiento_auto.programar_seguimiento_especifico(
+            self.seguimiento_auto.programar_seguimiento_especifico(
                 lead.telefono,
                 f'auto_{lead.estado.value}',
                 dias,
@@ -663,6 +721,7 @@ class LeadManager:
             )
         except Exception as e:
             print(f"❌ Error programando seguimiento automático: {e}")
+# FIN: Clase ConversationalLeadManager
 
 class SimpleLeadManager:
     """Manager simplificado para cuando no está disponible el tracking completo"""
@@ -796,7 +855,6 @@ app = Flask(__name__)
 @app.route("/whatsapp", methods=["POST"])
 def whatsapp_reply():
     try:
-        # Obtener datos del mensaje
         incoming_msg = request.values.get("Body", "").strip()
         telefono = request.values.get("From", "").replace("whatsapp:", "")
         nombre_perfil = request.values.get("ProfileName", "desconocido")
@@ -806,19 +864,23 @@ def whatsapp_reply():
         if not incoming_msg:
             return Response("", mimetype="application/xml")
         
-        # Procesar según sistema disponible
+        # Usar el nuevo manager conversacional
         if TRACKING_AVAILABLE and lead_tracker:
-            # Usar sistema completo CON MEMORIA MEJORADA
-            lead, siguiente_paso = lead_manager.procesar_mensaje_lead(telefono, incoming_msg, nombre_perfil)
+            # Crear instancia del manager conversacional
+            conversational_manager = ConversationalLeadManager(lead_tracker)
             
-            # Generar respuesta CON MEMORIA MEJORADA
-            if siguiente_paso.get('mensaje'):
-                respuesta_final = siguiente_paso['mensaje']
-            else:
-                # AQUÍ ES LA CLAVE: Siempre usar memoria mejorada
-                respuesta_final = generar_respuesta_openai(incoming_msg, lead, telefono)
+            # Procesar mensaje
+            lead, siguiente_paso = conversational_manager.procesar_mensaje_lead(telefono, incoming_msg, nombre_perfil)
             
-            # Registrar respuesta del bot
+            # SIEMPRE usar IA para generar respuesta natural
+            respuesta_final = generar_respuesta_con_contexto_inteligente(
+                incoming_msg, 
+                telefono, 
+                lead, 
+                siguiente_paso
+            )
+            
+            # Registrar respuesta
             interaccion_bot = Interaccion(
                 telefono=telefono,
                 tipo=TipoInteraccion.RESPUESTA_BOT,
@@ -828,27 +890,18 @@ def whatsapp_reply():
             )
             lead_tracker.registrar_interaccion(interaccion_bot)
             
-            # Programar seguimiento automático si es necesario
-            if siguiente_paso.get('nuevo_estado'):
-                lead_manager.programar_seguimiento_automatico(lead)
-            
         else:
-            # Usar sistema básico CON MEMORIA MEJORADA
+            # Sistema básico también mejorado
             lead_basico, siguiente_paso = lead_manager.procesar_mensaje_lead(telefono, incoming_msg, nombre_perfil)
-            
-            if siguiente_paso.get('mensaje'):
-                respuesta_final = siguiente_paso['mensaje']
-            else:
-                # TAMBIÉN aquí usar memoria mejorada
-                respuesta_final = generar_respuesta_openai(incoming_msg, lead_basico, telefono)
+            respuesta_final = generar_respuesta_openai(incoming_msg, lead_basico, telefono)
         
         # Enviar respuesta
         resp = MessagingResponse()
         msg = resp.message()
         msg.body(html.escape(respuesta_final))
         
-        print(f"🤖 Respuesta enviada: {respuesta_final}")
-        print(f"🧠 MEMORIA MEJORADA activada para: {telefono}")
+        print(f"🤖 Respuesta: {respuesta_final}")
+        print(f"🧠 Conversación natural activada")
         return Response(str(resp), mimetype="application/xml")
         
     except Exception as e:
@@ -856,10 +909,9 @@ def whatsapp_reply():
         import traceback
         traceback.print_exc()
         
-        # Respuesta de emergencia
         resp = MessagingResponse()
         msg = resp.message()
-        msg.body("Lo siento, tuvimos un problema técnico. Un asesor te contactará pronto. 😁")
+        msg.body("¡Chin! 😁 Algo falló... ¿Me das un segundo? Ya te contesto.")
         return Response(str(resp), mimetype="application/xml")
 
 @app.route("/")
