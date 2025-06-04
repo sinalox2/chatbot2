@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 import json
 import os
 import sys
+import re
 
 # Agregar el directorio padre al path para imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,6 +19,42 @@ try:
 except ImportError:
     print("⚠️ No se pudo importar supabase_client. Asegúrate de que el archivo existe.")
     supabase = None
+
+def _parse_datetime_safe(date_string: str) -> datetime:
+    """
+    Parsea fechas de Supabase de manera segura, manejando microsegundos variables
+    """
+    if not date_string:
+        return datetime.now()
+    
+    try:
+        # Limpiar el string de fecha
+        clean_date = date_string.replace('Z', '+00:00')
+        
+        # Corregir microsegundos si tienen formato incorrecto
+        # Buscar patrón de microsegundos: .12345 o .123456
+        microsecond_pattern = r'\.(\d{1,6})\+'
+        match = re.search(microsecond_pattern, clean_date)
+        
+        if match:
+            microseconds = match.group(1)
+            # Asegurar que tenga exactamente 6 dígitos
+            microseconds = microseconds.ljust(6, '0')[:6]
+            # Reemplazar en la fecha
+            clean_date = re.sub(microsecond_pattern, f'.{microseconds}+', clean_date)
+        
+        return datetime.fromisoformat(clean_date)
+        
+    except ValueError as e:
+        print(f"⚠️ Error parseando fecha '{date_string}': {e}")
+        # Fallback: intentar sin microsegundos
+        try:
+            # Remover microsegundos completamente
+            no_micro = re.sub(r'\.\d+\+', '+', date_string.replace('Z', '+00:00'))
+            return datetime.fromisoformat(no_micro)
+        except:
+            print(f"⚠️ Usando fecha actual como fallback")
+            return datetime.now()
 
 class LeadTrackingService:
     

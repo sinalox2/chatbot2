@@ -200,8 +200,13 @@ class Lead:
             self.temperatura = TemperaturaMercado.FRIO
     
     def dias_sin_interaccion(self) -> int:
-        ahora = datetime.now().astimezone()
+        ahora = datetime.now()
         if self.ultima_interaccion:
+            # Asegurar que ambas fechas sean naive o aware
+            if self.ultima_interaccion.tzinfo is not None:
+                # Si ultima_interaccion es aware, hacer ahora aware también
+                import pytz
+                ahora = ahora.replace(tzinfo=pytz.UTC)
             return (ahora - self.ultima_interaccion).days
         return 0
     

@@ -68,6 +68,18 @@ except ImportError as e:
     print(f"⚠️ Error importando RAG: {e}")
     RAG_AVAILABLE = False
 
+# Importar nuevas funcionalidades
+try:
+    from services.sentiment_analyzer import SentimentAnalyzer
+    from services.advanced_dashboard import AdvancedDashboard, generar_reporte_completo
+    from services.notification_system import NotificationSystem, notificar_evento
+    from services.intelligent_followup import IntelligentFollowup, generar_plan_seguimiento_para_lead
+    ADVANCED_FEATURES = True
+    print("✅ Funcionalidades avanzadas importadas correctamente")
+except ImportError as e:
+    print(f"⚠️ Error importando funcionalidades avanzadas: {e}")
+    ADVANCED_FEATURES = False
+
 def recuperar_contexto(pregunta):
     """Recupera contexto de la base de conocimiento si está disponible"""
     if RAG_AVAILABLE:
@@ -280,7 +292,7 @@ def construir_contexto_conversacion_mejorado(telefono, mensaje_actual):
             {"role": "user", "content": mensaje_actual}
         ], None
 
-def generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info, siguiente_paso):
+def generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info, siguiente_paso=None):
     """Genera respuesta con OpenAI considerando el contexto y siguiente paso"""
     try:
         # Construir contexto base
@@ -381,7 +393,7 @@ def generar_respuesta_openai(mensaje, lead_info, telefono=None):
     
     if telefono:
         print(f"🧠 Usando memoria mejorada para: {telefono}")
-        return generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info)
+        return generar_respuesta_con_contexto_inteligente(mensaje, telefono, lead_info, None)
     
     try:
         prompt_sistema = obtener_prompt_sistema_mejorado()
@@ -845,7 +857,7 @@ else:
 # Inicializar manager apropiado
 if TRACKING_AVAILABLE and lead_tracker:
     print("🎯 Usando sistema completo de tracking")
-    lead_manager = LeadManager(lead_tracker)
+    lead_manager = ConversationalLeadManager(lead_tracker, seguimiento_auto)
 else:
     print("🔧 Usando sistema básico simplificado")
     lead_manager = SimpleLeadManager()
@@ -911,7 +923,7 @@ def whatsapp_reply():
         
         resp = MessagingResponse()
         msg = resp.message()
-        msg.body("¡Chin! 😁 Algo falló... ¿Me das un segundo? Ya te contesto.")
+        msg.body("¡Uy! 😁 Algo falló... ¿Me das un segundo? Ya te contesto.")
         return Response(str(resp), mimetype="application/xml")
 
 @app.route("/")
@@ -1268,6 +1280,138 @@ def dashboard():
         
     except Exception as e:
         return f"❌ Error: {e}"
+
+@app.route("/advanced_dashboard")
+def advanced_dashboard():
+    """Dashboard avanzado con métricas de negocio y ROI"""
+    if not ADVANCED_FEATURES:
+        return "❌ Funcionalidades avanzadas no disponibles"
+    
+    try:
+        dashboard = AdvancedDashboard()
+        reporte = generar_reporte_completo(30)
+        
+        html_response = f"""
+        <html>
+        <head>
+            <title>Dashboard Avanzado Nissan</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1200px; margin: 0 auto; }}
+                .card {{ background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .metric {{ display: inline-block; margin: 10px; padding: 15px; background: #e3f2fd; border-radius: 5px; min-width: 150px; text-align: center; }}
+                .metric h3 {{ margin: 0; color: #1976d2; }}
+                .metric p {{ margin: 5px 0; font-size: 24px; font-weight: bold; }}
+                .success {{ background: #e8f5e8; color: #2e7d32; }}
+                .warning {{ background: #fff3e0; color: #f57c00; }}
+            </style>
+        </head>
+        <body>
+        <div class="container">
+            <h1>📈 Dashboard Avanzado Nissan</h1>
+            <p><strong>Reporte generado:</strong> {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</p>
+            
+            <div class="card">
+                <h2>📊 Métricas de Conversión (30 días)</h2>
+                <div class="metric success">
+                    <h3>Total Leads</h3>
+                    <p>{reporte['conversion_metrics'].get('total_leads', 0)}</p>
+                </div>
+                <div class="metric">
+                    <h3>Tasa Cierre</h3>
+                    <p>{reporte['conversion_metrics'].get('tasas_conversion', {}).get('cierre', 0)}%</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>💰 Análisis ROI</h2>
+                <div class="metric success">
+                    <h3>ROI Actual</h3>
+                    <p>{reporte['roi_analysis'].get('roi_actual_porcentaje', 0)}%</p>
+                </div>
+                <div class="metric warning">
+                    <h3>ROI Potencial</h3>
+                    <p>{reporte['roi_analysis'].get('roi_potencial_porcentaje', 0)}%</p>
+                </div>
+            </div>
+            
+            <p><a href="/">🏠 Volver al inicio</a></p>
+        </div>
+        </body>
+        </html>
+        """
+        
+        return html_response
+        
+    except Exception as e:
+        return f"❌ Error generando dashboard avanzado: {e}"
+
+@app.route("/test_sentiment")
+def test_sentiment():
+    """Endpoint para probar el análisis de sentimientos"""
+    if not ADVANCED_FEATURES:
+        return "❌ Análisis de sentimientos no disponible"
+    
+    try:
+        analyzer = SentimentAnalyzer()
+        
+        # Mensajes de prueba
+        mensajes_test = [
+            "Hola, me interesa el Sentra pero está muy caro",
+            "¡Excelente! Me encanta el diseño del Kicks",
+            "No sé si pueda comprobar mis ingresos",
+            "Necesito el auto ya, es urgente para trabajar",
+            "Gracias por la información, lo voy a pensar"
+        ]
+        
+        resultados = []
+        for mensaje in mensajes_test:
+            analisis = analyzer.analizar_sentimiento_basico(mensaje)
+            estrategia = analyzer.sugerir_estrategia_respuesta(analisis)
+            resultados.append({
+                'mensaje': mensaje,
+                'sentimientos': analisis.get('sentimientos', []),
+                'tipo': analisis.get('tipo_mensaje', 'general'),
+                'tono_sugerido': estrategia.get('tono', 'amigable'),
+                'enfoque': estrategia.get('enfoque', 'informativo')
+            })
+        
+        html_response = f"""
+        <html>
+        <head><title>Test Análisis de Sentimientos</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .test {{ background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 5px; }}
+            .sentiment {{ background: #e3f2fd; padding: 5px; margin: 5px; border-radius: 3px; display: inline-block; }}
+        </style>
+        </head>
+        <body>
+        <h1>🧠 Test de Análisis de Sentimientos</h1>
+        """
+        
+        for resultado in resultados:
+            html_response += f"""
+            <div class="test">
+                <p><strong>Mensaje:</strong> "{resultado['mensaje']}"</p>
+                <p><strong>Sentimientos detectados:</strong> 
+                {' '.join([f'<span class="sentiment">{s}</span>' for s in resultado['sentimientos']]) if resultado['sentimientos'] else 'Ninguno específico'}
+                </p>
+                <p><strong>Tipo:</strong> {resultado['tipo']}</p>
+                <p><strong>Tono sugerido:</strong> {resultado['tono_sugerido']}</p>
+                <p><strong>Enfoque:</strong> {resultado['enfoque']}</p>
+            </div>
+            """
+        
+        html_response += """
+        <p><a href="/">🏠 Volver al inicio</a></p>
+        </body>
+        </html>
+        """
+        
+        return html_response
+        
+    except Exception as e:
+        return f"❌ Error probando análisis de sentimientos: {e}"
 
 if __name__ == "__main__":
     print("🚀 Iniciando aplicación Flask...")

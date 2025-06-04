@@ -1,0 +1,108 @@
+{
+    "name": "Bot WhatsApp Nissan",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "incoming-whatsapp",
+          "options": {}
+        },
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [200, 300]
+      },
+      {
+        "parameters": {
+          "values": {
+            "string": [
+              { "name": "from", "value": "={{$json[\"From\"]}}" },
+              { "name": "body", "value": "={{$json[\"Body\"]}}" },
+              { "name": "waid", "value": "={{$json[\"WaId\"]}}" },
+              { "name": "sid", "value": "={{$json[\"MessageSid\"]}}" }
+            ]
+          }
+        },
+        "name": "Parsear Mensaje",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 1,
+        "position": [400, 300]
+      },
+      {
+        "parameters": {
+          "authentication": "headerAuth",
+          "requestMethod": "POST",
+          "url": "https://<tu_project>.supabase.co/rest/v1/rpc/get_historial",
+          "headers": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_KEY}}" }
+          ]
+        },
+        "name": "Historial Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [600, 300]
+      },
+      {
+        "parameters": {
+          "authentication": "headerAuth",
+          "requestMethod": "POST",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "headers": [
+            { "name": "Authorization", "value": "Bearer {{$env.OPENAI_API_KEY}}" }
+          ],
+          "options": {},
+          "bodyParametersJson": "={\"model\":\"gpt-4\",\"messages\":[{\"role\":\"system\",\"content\":\"Eres un asesor Nissan...\"},{\"role\":\"user\",\"content\":\"{{$json.body}}\"}]}"
+        },
+        "name": "Enviar a GPT",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [800, 300]
+      },
+      {
+        "parameters": {
+          "authentication": "headerAuth",
+          "requestMethod": "POST",
+          "url": "https://<tu_project>.supabase.co/rest/v1/historial",
+          "headers": [
+            { "name": "apikey", "value": "={{$env.SUPABASE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_KEY}}" }
+          ],
+          "bodyParametersJson": "={\"mensaje\": \"{{$json.body}}\", \"respuesta\": \"{{$node[\"Enviar a GPT\"].json[\"choices\"][0][\"message\"][\"content\"]}}\"}"
+        },
+        "name": "Guardar en Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [1000, 200]
+      },
+      {
+        "parameters": {
+          "authentication": "basicAuth",
+          "url": "https://api.twilio.com/2010-04-01/Accounts/{{$env.TWILIO_SID}}/Messages.json",
+          "requestMethod": "POST",
+          "bodyParametersUi": {
+            "parameter": [
+              { "name": "From", "value": "={{$env.TWILIO_PHONE}}" },
+              { "name": "To", "value": "={{$json.from}}" },
+              { "name": "Body", "value": "={{$node[\"Enviar a GPT\"].json[\"choices\"][0][\"message\"][\"content\"]}}" }
+            ]
+          }
+        },
+        "name": "Enviar Respuesta WhatsApp",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [1000, 400]
+      }
+    ],
+    "connections": {
+      "Webhook": { "main": [[{ "node": "Parsear Mensaje", "type": "main", "index": 0 }]] },
+      "Parsear Mensaje": { "main": [[{ "node": "Historial Supabase", "type": "main", "index": 0 }]] },
+      "Historial Supabase": { "main": [[{ "node": "Enviar a GPT", "type": "main", "index": 0 }]] },
+      "Enviar a GPT": {
+        "main": [
+          [{ "node": "Guardar en Supabase", "type": "main", "index": 0 }],
+          [{ "node": "Enviar Respuesta WhatsApp", "type": "main", "index": 0 }]
+        ]
+      }
+    }
+  }
+  
