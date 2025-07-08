@@ -2776,7 +2776,13 @@ def dashboard_contactos_proactivos():
             if not template_display and contacto.get('observaciones'):
                 observaciones = contacto.get('observaciones', '')
                 if 'Template:' in observaciones:
-                    template_display = observaciones.split('Template:')[1].strip().split('|')[0].strip()
+                    # Extraer después de 'Template:' hasta el final o hasta el siguiente separador
+                    template_part = observaciones.split('Template:')[1].strip()
+                    # Si hay más contenido después, tomar solo la plantilla
+                    if '|' in template_part:
+                        template_display = template_part.split('|')[0].strip()
+                    else:
+                        template_display = template_part.strip()
             
             if not template_display:
                 template_display = 'Sin plantilla'
@@ -2863,6 +2869,14 @@ def dashboard_contactos_proactivos():
                         </label>
                     </div>
                     
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="primer_contacto" name="primer_contacto" value="1" checked>
+                            Es primer contacto (obligatorio usar plantilla por políticas Meta)
+                        </label>
+                        <small style="color: #666;">Si NO es primer contacto, se enviará mensaje personalizado</small>
+                    </div>
+                    
                     <button type="submit" class="btn">➕ Agregar Contacto</button>
                 </form>
             </div>
@@ -2905,13 +2919,35 @@ def agregar_contacto_proactivo():
         prioridad = int(request.form.get('prioridad', 2))
         mensaje_personalizado = request.form.get('mensaje_personalizado', '').strip() or None
         observaciones = request.form.get('observaciones', '').strip() or None
+        template_whatsapp = request.form.get('template_whatsapp', '').strip()
+        activar_seguimiento = request.form.get('activar_seguimiento') == '1'
+        primer_contacto = request.form.get('primer_contacto') == '1'
         
         # Validaciones básicas
         if not telefono or not nombre or not contexto:
             return "❌ Faltan datos requeridos (teléfono, nombre, contexto)"
         
+        # Si es primer contacto, la plantilla es obligatoria (políticas Meta)
+        if primer_contacto and not template_whatsapp:
+            return "❌ Para primer contacto es obligatorio seleccionar una plantilla (políticas Meta)"
+        
         if not telefono.startswith('+52'):
             telefono = '+52' + telefono.lstrip('+')
+        
+        # Modificar observaciones para incluir información del contacto
+        info_adicional = []
+        if primer_contacto:
+            info_adicional.append("Primer contacto")
+        else:
+            info_adicional.append("Contacto existente")
+            
+        if observaciones:
+            observaciones_finales = f"{observaciones} | {' | '.join(info_adicional)}"
+        else:
+            observaciones_finales = ' | '.join(info_adicional)
+        
+        # Determinar si usar plantilla o mensaje personalizado
+        template_final = template_whatsapp if primer_contacto else None
         
         # Agregar contacto
         exito = contactos_proactivos_service.agregar_contacto_proactivo(
@@ -2921,10 +2957,21 @@ def agregar_contacto_proactivo():
             tipo_campana=tipo_campana,
             prioridad=prioridad,
             mensaje_personalizado=mensaje_personalizado,
-            observaciones=observaciones
+            observaciones=observaciones_finales,
+            template_whatsapp=template_final
         )
         
         if exito:
+            # Si se activó el seguimiento automático, programar mensajes adicionales
+            if activar_seguimiento:
+                contactos_proactivos_service.programar_mensajes_constantes(
+                    telefono=telefono,
+                    nombre=nombre,
+                    contexto=contexto,
+                    max_mensajes=5,
+                    intervalo_horas=20
+                )
+            
             return f"""
             <html>
             <head><title>Contacto Agregado</title></head>
@@ -2933,8 +2980,11 @@ def agregar_contacto_proactivo():
                 <p><strong>Nombre:</strong> {nombre}</p>
                 <p><strong>Teléfono:</strong> {telefono}</p>
                 <p><strong>Tipo:</strong> {tipo_campana}</p>
+                <p><strong>Tipo de contacto:</strong> {'🆕 Primer contacto (plantilla)' if primer_contacto else '🔄 Contacto existente (mensaje personalizado)'}</p>
+                {'<p><strong>Plantilla WhatsApp:</strong> ' + template_whatsapp + '</p>' if template_final else '<p><strong>Mensaje:</strong> Personalizado</p>'}
                 <p><strong>Prioridad:</strong> {'🔴 Alta' if prioridad == 1 else '🟡 Media' if prioridad == 2 else '🟢 Baja'}</p>
                 <p><strong>Contexto:</strong> {contexto[:200]}...</p>
+                {'<p><strong>Seguimiento automático:</strong> ✅ Activado (5 mensajes cada 20 horas)</p>' if activar_seguimiento else ''}
                 
                 <p>El contacto será procesado automáticamente según su prioridad.</p>
                 

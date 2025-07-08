@@ -22,6 +22,8 @@ Bot inteligente de WhatsApp para concesionario Nissan con funcionalidades avanza
 - ✅ **NUEVO: Dashboard con métricas de ROI**
 - ✅ **NUEVO: Sistema de notificaciones (Slack, Discord, Email)**
 - ✅ **NUEVO: Seguimiento inteligente adaptativo**
+- ✅ **NUEVO: Sistema de plantillas WhatsApp Business**
+- ✅ **NUEVO: Contactos proactivos con seguimiento automático**
 
 ### 🔄 En Desarrollo
 - 🔄 Integración con CRM externo
@@ -74,6 +76,10 @@ TWILIO_ACCOUNT_SID=tu_account_sid
 TWILIO_AUTH_TOKEN=tu_auth_token
 TWILIO_WHATSAPP_NUMBER=+1234567890
 
+# WhatsApp Business API (para plantillas)
+WHATSAPP_TOKEN=tu_whatsapp_business_token
+PHONE_NUMBER_ID=tu_phone_number_id
+
 # Notificaciones (opcionales)
 SLACK_WEBHOOK_URL=tu_webhook_slack
 DISCORD_WEBHOOK_URL=tu_webhook_discord
@@ -100,6 +106,12 @@ python app.py
 - `/whatsapp` - Webhook para Twilio
 - `/dashboard` - Dashboard básico de leads
 - `/advanced_dashboard` - **NUEVO: Dashboard avanzado con ROI**
+- `/contactos_proactivos` - **NUEVO: Dashboard de contactos proactivos**
+
+### Contactos Proactivos
+- `/contactos_proactivos` - Dashboard principal de contactos
+- `/agregar_contacto_proactivo` - Agregar nuevo contacto con plantilla
+- `/enviar_contactos_ahora` - Enviar todos los contactos pendientes
 
 ### Testing
 - `/test` - Prueba todos los servicios
@@ -154,6 +166,23 @@ El sistema detecta automáticamente:
 - 🎯 Meta diaria alcanzada
 - 🚨 Errores críticos del sistema
 
+## 📱 Sistema de Plantillas WhatsApp Business
+
+### Plantillas Aprobadas
+- **saludo_lead**: Primer contacto general para nuevos leads
+- **recordatorio_cita**: Recordatorios de citas agendadas
+
+### Cumplimiento de Políticas Meta
+- ✅ Primer contacto siempre con plantilla aprobada
+- ✅ Ventana de 24 horas mantenida con mensajes cada 20 horas
+- ✅ Máximo 5 mensajes de seguimiento automático
+- ✅ Detección automática de contactos existentes vs nuevos
+
+### Lógica de Contacto
+- **Nuevo contacto**: Usa plantilla obligatoria (políticas Meta)
+- **Contacto existente**: Usa mensaje personalizado 
+- **Seguimiento automático**: Mensajes cada 20 horas para mantener ventana
+
 ## 🎯 Seguimiento Inteligente
 
 ### Clasificación Automática
@@ -168,6 +197,20 @@ El sistema detecta automáticamente:
 - Mensajes adaptados al contexto
 - Canales preferidos (WhatsApp/llamada)
 - Priorización automática
+
+## 🤖 Contactos Proactivos
+
+### Dashboard de Gestión
+- ✅ Formulario para agregar leads con plantillas
+- ✅ Vista de contactos pendientes y procesados
+- ✅ Estadísticas de envío y respuesta
+- ✅ Seguimiento automático configurable
+
+### Características
+- **Primer contacto**: Obligatorio usar plantilla aprobada
+- **Seguimiento automático**: Cada 20 horas, máximo 5 mensajes
+- **Detección inteligente**: Nuevo vs contacto existente
+- **Fallback robusto**: Compatible con BD sin columna template_whatsapp
 
 ## 📁 Estructura del Proyecto
 
@@ -186,7 +229,9 @@ chatbot/
 │   ├── sentiment_analyzer.py     # 🆕 Análisis de sentimientos
 │   ├── advanced_dashboard.py     # 🆕 Dashboard avanzado
 │   ├── notification_system.py    # 🆕 Notificaciones
-│   └── intelligent_followup.py   # 🆕 Seguimiento inteligente
+│   ├── intelligent_followup.py   # 🆕 Seguimiento inteligente
+│   ├── contactos_proactivos.py   # 🆕 Contactos proactivos con plantillas
+│   └── whatsapp_service.py       # 🆕 Servicio WhatsApp Business API
 ├── rag/
 │   ├── buscador.py               # Búsqueda en documentos
 │   ├── indexador.py              # Indexación vectorial
