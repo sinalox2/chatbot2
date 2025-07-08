@@ -20,9 +20,10 @@ except ImportError:
     print("⚠️ No se pudo importar supabase_client. Asegúrate de que el archivo existe.")
     supabase = None
 
-def _parse_datetime_safe(date_string: str) -> datetime:
+def parse_supabase_date(date_string: str) -> datetime:
     """
     Parsea fechas de Supabase de manera segura, manejando microsegundos variables
+    Retorna datetime naive (sin timezone) para comparaciones consistentes
     """
     if not date_string:
         return datetime.now()
@@ -43,7 +44,10 @@ def _parse_datetime_safe(date_string: str) -> datetime:
             # Reemplazar en la fecha
             clean_date = re.sub(microsecond_pattern, f'.{microseconds}+', clean_date)
         
-        return datetime.fromisoformat(clean_date)
+        # Parsear fecha con timezone
+        dt_with_tz = datetime.fromisoformat(clean_date)
+        # Convertir a naive datetime (remover timezone)
+        return dt_with_tz.replace(tzinfo=None)
         
     except ValueError as e:
         print(f"⚠️ Error parseando fecha '{date_string}': {e}")
@@ -51,7 +55,8 @@ def _parse_datetime_safe(date_string: str) -> datetime:
         try:
             # Remover microsegundos completamente
             no_micro = re.sub(r'\.\d+\+', '+', date_string.replace('Z', '+00:00'))
-            return datetime.fromisoformat(no_micro)
+            dt_with_tz = datetime.fromisoformat(no_micro)
+            return dt_with_tz.replace(tzinfo=None)
         except:
             print(f"⚠️ Usando fecha actual como fallback")
             return datetime.now()
@@ -118,22 +123,22 @@ class LeadTrackingService:
                 
                 info_prospecto = ProspectoInfo(**info_data)
                 
-                # Construir objeto Lead
+                # Construir objeto Lead con manejo robusto de fechas
                 lead = Lead(
                     telefono=data['telefono'],
                     nombre=data['nombre'],
                     estado=EstadoLead(data['estado']),
                     temperatura=TemperaturaMercado(data['temperatura']),
                     canal_origen=CanalOrigen(data['canal_origen']),
-                    fecha_creacion=datetime.fromisoformat(data['fecha_creacion'].replace('Z', '+00:00')),
-                    ultima_interaccion=datetime.fromisoformat(data['ultima_interaccion'].replace('Z', '+00:00')),
+                    fecha_creacion=parse_supabase_date(data['fecha_creacion']),
+                    ultima_interaccion=parse_supabase_date(data['ultima_interaccion']),
                     info_prospecto=info_prospecto,
                     total_mensajes_recibidos=data.get('total_mensajes_recibidos', 0),
                     total_mensajes_enviados=data.get('total_mensajes_enviados', 0),
                     total_llamadas=data.get('total_llamadas', 0),
                     total_citas_agendadas=data.get('total_citas_agendadas', 0),
                     total_citas_completadas=data.get('total_citas_completadas', 0),
-                    proximo_seguimiento=datetime.fromisoformat(data['proximo_seguimiento'].replace('Z', '+00:00')) if data.get('proximo_seguimiento') else None,
+                    proximo_seguimiento=parse_supabase_date(data['proximo_seguimiento']) if data.get('proximo_seguimiento') else None,
                     asesor_asignado=data.get('asesor_asignado'),
                     notas_importantes=data.get('notas_importantes', ''),
                     score_calificacion=float(data.get('score_calificacion', 0.0)),
@@ -141,7 +146,7 @@ class LeadTrackingService:
                     valor_estimado_venta=float(data.get('valor_estimado_venta', 0.0)),
                     email=data.get('email'),
                     ciudad=data.get('ciudad'),
-                    fecha_nacimiento=datetime.fromisoformat(data['fecha_nacimiento']) if data.get('fecha_nacimiento') else None
+                    fecha_nacimiento=parse_supabase_date(data['fecha_nacimiento']) if data.get('fecha_nacimiento') else None
                 )
                 
                 return lead

@@ -324,14 +324,55 @@ class IntelligentFollowup:
         return max(1, min(10, prioridad_base))
     
     def _enviar_mensaje_seguimiento(self, seguimiento: Dict) -> Dict:
-        """Simula el envío de un mensaje de seguimiento"""
-        # Aquí se integraría con Twilio o el sistema de mensajería
-        return {
-            'exito': True,
-            'canal_usado': seguimiento['canal'],
-            'mensaje_enviado': seguimiento['mensaje'],
-            'timestamp': datetime.now().isoformat()
-        }
+        """Envía mensaje de seguimiento usando WhatsApp Business API"""
+        try:
+            # Usar el servicio centralizado de WhatsApp
+            if seguimiento['canal'] == 'whatsapp':
+                try:
+                    # Importar servicio de WhatsApp
+                    import sys
+                    import os
+                    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    from services.whatsapp_service import whatsapp_service
+                    
+                    resultado = whatsapp_service.enviar_mensaje(
+                        seguimiento.get('telefono', ''),
+                        seguimiento['mensaje']
+                    )
+                    
+                    return {
+                        'exito': resultado.get('success', False),
+                        'canal_usado': seguimiento['canal'],
+                        'mensaje_enviado': seguimiento['mensaje'],
+                        'timestamp': datetime.now().isoformat(),
+                        'message_id': resultado.get('message_id'),
+                        'simulado': resultado.get('simulado', False)
+                    }
+                except ImportError:
+                    print("⚠️ No se pudo importar servicio de WhatsApp, simulando envío")
+                    return {
+                        'exito': True,
+                        'canal_usado': seguimiento['canal'],
+                        'mensaje_enviado': seguimiento['mensaje'],
+                        'timestamp': datetime.now().isoformat(),
+                        'simulado': True
+                    }
+            else:
+                # Para otros canales, simular
+                print(f"📱 SIMULADO - {seguimiento['canal']}: {seguimiento['mensaje']}")
+                return {
+                    'exito': True,
+                    'canal_usado': seguimiento['canal'],
+                    'mensaje_enviado': seguimiento['mensaje'],
+                    'timestamp': datetime.now().isoformat(),
+                    'simulado': True
+                }
+        except Exception as e:
+            return {
+                'exito': False,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
     
     def _obtener_siguiente_seguimiento(self, plan: Dict, ejecutado: Dict) -> Optional[Dict]:
         """Obtiene el siguiente seguimiento programado"""

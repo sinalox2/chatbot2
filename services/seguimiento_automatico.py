@@ -18,36 +18,16 @@ except ImportError as e:
     print(f"⚠️ Error importando en seguimiento_automatico: {e}")
     supabase = None
 
-# Configuración de Twilio (opcional)
-try:
-    from twilio.rest import Client as TwilioClient
-    TWILIO_AVAILABLE = True
-except ImportError:
-    print("⚠️ Twilio no disponible. Seguimientos se simularán.")
-    TWILIO_AVAILABLE = False
+# Configuración de WhatsApp Business API
+import requests
+from services.whatsapp_service import whatsapp_service
 
 class SeguimientoAutomaticoService:
     
     def __init__(self):
         self.lead_tracker = LeadTrackingService()
         self.running = False
-        
-        # Configurar Twilio si está disponible
-        if TWILIO_AVAILABLE and os.getenv('TWILIO_ACCOUNT_SID'):
-            try:
-                self.twilio_client = TwilioClient(
-                    os.getenv('TWILIO_ACCOUNT_SID'),
-                    os.getenv('TWILIO_AUTH_TOKEN')
-                )
-                self.twilio_number = os.getenv('TWILIO_WHATSAPP_NUMBER')
-                self.twilio_enabled = True
-                print("✅ Twilio configurado para seguimientos automáticos")
-            except Exception as e:
-                print(f"⚠️ Error configurando Twilio: {e}")
-                self.twilio_enabled = False
-        else:
-            self.twilio_enabled = False
-            print("⚠️ Twilio no configurado. Seguimientos se simularán.")
+        self.whatsapp_enabled = whatsapp_service.enabled
     
     def iniciar_seguimiento(self):
         """Inicia el sistema de seguimiento automático"""
@@ -283,22 +263,9 @@ class SeguimientoAutomaticoService:
         return templates.get(tipo_seguimiento, 'Hola {nombre}! 😁 ¿Cómo estás? ¿Sigues interesado en nuestros autos?')
     
     def enviar_whatsapp(self, telefono, mensaje):
-        """Envía mensaje de WhatsApp usando Twilio"""
-        if not self.twilio_enabled:
-            print(f"📱 SIMULADO - WhatsApp a {telefono}: {mensaje}")
-            return True
-        
-        try:
-            message = self.twilio_client.messages.create(
-                body=mensaje,
-                from_=f'whatsapp:{self.twilio_number}',
-                to=f'whatsapp:{telefono}'
-            )
-            print(f"✅ WhatsApp enviado a {telefono}: {message.sid}")
-            return True
-        except Exception as e:
-            print(f"❌ Error enviando WhatsApp a {telefono}: {e}")
-            return False
+        """Envía mensaje de WhatsApp usando el servicio centralizado"""
+        resultado = whatsapp_service.enviar_mensaje(telefono, mensaje)
+        return resultado.get('success', False)
     
     def programar_seguimiento_especifico(self, telefono, tipo, dias, prioridad=1, canal='whatsapp'):
         """Programa un seguimiento específico"""
@@ -406,7 +373,7 @@ TOP 5 LEADS PRIORITARIOS:
         """Muestra el estado actual del sistema"""
         return {
             'running': self.running,
-            'twilio_enabled': self.twilio_enabled,
+            'whatsapp_enabled': self.whatsapp_enabled,
             'seguimientos_pendientes': self.contar_seguimientos_pendientes(),
             'proximo_reporte': '18:00'
         }

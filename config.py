@@ -13,10 +13,9 @@ class Config:
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     
-    # Twilio
-    TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-    TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-    TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
+    # WhatsApp Business API
+    WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+    PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
     
     # Notificaciones
     SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
