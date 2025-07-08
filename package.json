@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.11"
   }
