@@ -272,6 +272,65 @@ def enviar_respuesta_whatsapp(numero, mensaje):
         return False
 
 
+# Función utilitaria para enviar plantillas de WhatsApp Cloud API
+def enviar_template_whatsapp(numero, template_name, parametros):
+    """
+    Envía un mensaje de plantilla (template) por WhatsApp Cloud API.
+
+    :param numero: Número del cliente en formato internacional, ej. +5216612345678
+    :param template_name: Nombre de la plantilla aprobada en WhatsApp
+    :param parametros: Lista de strings con los parámetros dinámicos de la plantilla
+    """
+    try:
+        token = os.getenv("WHATSAPP_TOKEN")
+        phone_number_id = os.getenv("PHONE_NUMBER_ID")
+        
+        if not token or not phone_number_id:
+            print("❌ Faltan variables de entorno para WhatsApp (WHATSAPP_TOKEN, PHONE_NUMBER_ID)")
+            return False
+
+        url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+
+        components = [
+            {
+                "type": "body",
+                "parameters": [{"type": "text", "text": str(p)} for p in parametros]
+            }
+        ]
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": numero,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": { "code": "es_MX" },
+                "components": components
+            }
+        }
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+
+        if response.ok:
+            print(f"✅ Plantilla '{template_name}' enviada a WhatsApp ({numero})")
+            return True
+        else:
+            print(f"❌ Error enviando plantilla: {response.status_code} - {response.text}")
+            return False
+
+    except requests.exceptions.Timeout:
+        print(f"⏱️ Timeout enviando plantilla a WhatsApp ({numero})")
+        return False
+    except Exception as e:
+        print(f"❌ Error enviando plantilla a WhatsApp: {e}")
+        return False
+
+
 
 # Variables de entorno para Chatwoot
 CHATWOOT_URL = os.getenv("CHATWOOT_BASE_URL", "https://crm.progreweb.com")
@@ -2846,12 +2905,10 @@ def agregar_contacto_proactivo():
         prioridad = int(request.form.get('prioridad', 2))
         mensaje_personalizado = request.form.get('mensaje_personalizado', '').strip() or None
         observaciones = request.form.get('observaciones', '').strip() or None
-        template_whatsapp = request.form.get('template_whatsapp', '').strip()
-        activar_seguimiento = request.form.get('activar_seguimiento') == '1'
         
         # Validaciones básicas
-        if not telefono or not nombre or not contexto or not template_whatsapp:
-            return "❌ Faltan datos requeridos (teléfono, nombre, contexto, plantilla WhatsApp)"
+        if not telefono or not nombre or not contexto:
+            return "❌ Faltan datos requeridos (teléfono, nombre, contexto)"
         
         if not telefono.startswith('+52'):
             telefono = '+52' + telefono.lstrip('+')
@@ -2864,21 +2921,10 @@ def agregar_contacto_proactivo():
             tipo_campana=tipo_campana,
             prioridad=prioridad,
             mensaje_personalizado=mensaje_personalizado,
-            observaciones=observaciones,
-            template_whatsapp=template_whatsapp
+            observaciones=observaciones
         )
         
         if exito:
-            # Si se activó el seguimiento automático, programar mensajes adicionales
-            if activar_seguimiento:
-                contactos_proactivos_service.programar_mensajes_constantes(
-                    telefono=telefono,
-                    nombre=nombre,
-                    contexto=contexto,
-                    max_mensajes=5,
-                    intervalo_horas=20
-                )
-            
             return f"""
             <html>
             <head><title>Contacto Agregado</title></head>
@@ -2887,10 +2933,8 @@ def agregar_contacto_proactivo():
                 <p><strong>Nombre:</strong> {nombre}</p>
                 <p><strong>Teléfono:</strong> {telefono}</p>
                 <p><strong>Tipo:</strong> {tipo_campana}</p>
-                <p><strong>Plantilla WhatsApp:</strong> {template_whatsapp}</p>
                 <p><strong>Prioridad:</strong> {'🔴 Alta' if prioridad == 1 else '🟡 Media' if prioridad == 2 else '🟢 Baja'}</p>
                 <p><strong>Contexto:</strong> {contexto[:200]}...</p>
-                {'<p><strong>Seguimiento automático:</strong> ✅ Activado (5 mensajes cada 20 horas)</p>' if activar_seguimiento else ''}
                 
                 <p>El contacto será procesado automáticamente según su prioridad.</p>
                 
@@ -3238,3 +3282,36 @@ if __name__ == "__main__":
     print("🧠 Test memoria MEJORADA: http://localhost:5001/test_memoria_mejorada")
     
     app.run(host="0.0.0.0", port=5001, debug=True)
+# =====================================================
+# FUNCIONES PARA ENVIAR PLANTILLAS NUEVAS DE WHATSAPP
+# =====================================================
+
+def enviar_saludo_lead(telefono, nombre_cliente):
+    """
+    Envía la plantilla 'saludo_lead' al número indicado con el nombre del cliente.
+    """
+    return enviar_template_whatsapp(
+        numero=telefono,
+        template_name="saludo_lead",
+        parametros=[nombre_cliente]
+    )
+
+def enviar_recordatorio_cita(telefono, nombre_cliente, fecha, hora, direccion):
+    """
+    Envía la plantilla 'recordatorio_cita' al número indicado con los parámetros requeridos.
+    """
+    return enviar_template_whatsapp(
+        numero=telefono,
+        template_name="recordatorio_cita",
+        parametros=[nombre_cliente, fecha, hora, direccion]
+    )
+
+def enviar_reasignacion_cita(telefono, nombre_cliente, nueva_fecha, nueva_hora):
+    """
+    Envía la plantilla 'reasignacion_cita' al número indicado con los parámetros requeridos.
+    """
+    return enviar_template_whatsapp(
+        numero=telefono,
+        template_name="reasignacion_cita",
+        parametros=[nombre_cliente, nueva_fecha, nueva_hora]
+    )
