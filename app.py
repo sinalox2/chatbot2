@@ -2752,6 +2752,7 @@ def dashboard_contactos_proactivos():
                 <div style="margin: 10px 0;">
                     <a href="/enviar_contactos_ahora" class="btn btn-success">🚀 Enviar Todos Ahora</a>
                     <a href="/test_contacto_proactivo" class="btn btn-warning">🧪 Enviar Prueba</a>
+                    <a href="/plantillas_whatsapp" class="btn" style="background: #17a2b8; color: white;">📱 Ver Plantillas</a>
                 </div>
                 
                 <table>
@@ -3063,6 +3064,151 @@ def enviar_contactos_ahora():
     except Exception as e:
         return f"❌ Error procesando contactos: {e}"
     
+@app.route("/plantillas_whatsapp")
+def plantillas_whatsapp():
+    """Endpoint para ver plantillas disponibles en WhatsApp Business"""
+    try:
+        from services.whatsapp_service import WhatsAppService
+        whatsapp_service = WhatsAppService()
+        
+        resultado = whatsapp_service.obtener_plantillas_disponibles()
+        
+        html = f"""
+        <html>
+        <head>
+            <title>Plantillas WhatsApp Business</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                .plantilla {{ background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff; }}
+                .error {{ background: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; }}
+                .success {{ background: #d4edda; color: #155724; padding: 15px; border-radius: 5px; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
+        <body>
+            <h1>📱 Plantillas WhatsApp Business</h1>
+        """
+        
+        if resultado['success']:
+            plantillas = resultado['plantillas']
+            html += f"""
+            <div class="success">
+                <h3>✅ {len(plantillas)} plantillas aprobadas encontradas</h3>
+            </div>
+            
+            <table>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Estado</th>
+                    <th>Categoría</th>
+                    <th>Idioma</th>
+                </tr>
+            """
+            
+            for plantilla in plantillas:
+                html += f"""
+                <tr>
+                    <td><strong>{plantilla['name']}</strong></td>
+                    <td>{plantilla['status']}</td>
+                    <td>{plantilla['category']}</td>
+                    <td>{plantilla['language']}</td>
+                </tr>
+                """
+            
+            html += "</table>"
+            
+            if not plantillas:
+                html += """
+                <div class="error">
+                    <h3>❌ No hay plantillas aprobadas</h3>
+                    <p>Necesitas crear y aprobar plantillas en Meta Business Manager.</p>
+                </div>
+                """
+        else:
+            html += f"""
+            <div class="error">
+                <h3>❌ Error obteniendo plantillas</h3>
+                <p>{resultado.get('error', 'Error desconocido')}</p>
+            </div>
+            """
+        
+        html += """
+            <h2>📝 Cómo crear plantillas</h2>
+            <ol>
+                <li>Ir a <a href="https://business.facebook.com/" target="_blank">Meta Business Manager</a></li>
+                <li>Seleccionar WhatsApp → Plantillas de mensaje</li>
+                <li>Crear nueva plantilla con nombres como 'saludo_lead' o 'recordatorio_cita'</li>
+                <li>Esperar aprobación de Meta (24-48 horas)</li>
+                <li>Actualizar el dropdown del dashboard con los nombres reales</li>
+            </ol>
+            
+            <p><a href="/contactos_proactivos">🔙 Volver al dashboard</a></p>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"❌ Error: {e}"
+
+@app.route("/api/plantillas_disponibles")
+def api_plantillas_disponibles():
+    """API para obtener plantillas disponibles en formato JSON"""
+    try:
+        from services.whatsapp_service import WhatsAppService
+        whatsapp_service = WhatsAppService()
+        
+        resultado = whatsapp_service.obtener_plantillas_disponibles()
+        
+        if resultado['success']:
+            plantillas_formateadas = []
+            for plantilla in resultado['plantillas']:
+                plantillas_formateadas.append({
+                    'value': plantilla['name'],
+                    'label': f"{plantilla['name']} - {plantilla['category']}"
+                })
+            
+            # Agregar plantillas por defecto si no hay ninguna
+            if not plantillas_formateadas:
+                plantillas_formateadas = [
+                    {'value': 'saludo_lead', 'label': 'saludo_lead - Primer contacto (FALLBACK)'},
+                    {'value': 'recordatorio_cita', 'label': 'recordatorio_cita - Recordatorio (FALLBACK)'}
+                ]
+            
+            return {
+                'success': True,
+                'plantillas': plantillas_formateadas,
+                'total': len(plantillas_formateadas),
+                'mensaje': 'Plantillas cargadas correctamente'
+            }
+        else:
+            # Fallback en caso de error
+            return {
+                'success': False,
+                'plantillas': [
+                    {'value': 'saludo_lead', 'label': 'saludo_lead - Primer contacto (FALLBACK)'},
+                    {'value': 'recordatorio_cita', 'label': 'recordatorio_cita - Recordatorio (FALLBACK)'}
+                ],
+                'total': 2,
+                'mensaje': 'Error obteniendo plantillas, usando fallback',
+                'error': resultado.get('error', 'Error desconocido')
+            }
+            
+    except Exception as e:
+        return {
+            'success': False,
+            'plantillas': [
+                {'value': 'saludo_lead', 'label': 'saludo_lead - Primer contacto (FALLBACK)'},
+                {'value': 'recordatorio_cita', 'label': 'recordatorio_cita - Recordatorio (FALLBACK)'}
+            ],
+            'total': 2,
+            'mensaje': 'Error del sistema, usando fallback',
+            'error': str(e)
+        }
+
 @app.route("/test_contacto_proactivo")
 def test_contacto_proactivo():
     """Endpoint para probar el sistema con un contacto de prueba"""

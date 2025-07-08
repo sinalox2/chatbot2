@@ -177,6 +177,67 @@ class WhatsAppService:
                 'template': template_name
             }
     
+    def obtener_plantillas_disponibles(self) -> Dict[str, any]:
+        """
+        Obtiene la lista de plantillas disponibles en WhatsApp Business
+        
+        Returns:
+            Dict con las plantillas disponibles
+        """
+        if not self.enabled:
+            return {
+                'success': False,
+                'plantillas': [],
+                'message': 'WhatsApp Business API no configurado'
+            }
+        
+        try:
+            url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}/message_templates"
+            
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.ok:
+                data = response.json()
+                plantillas = []
+                
+                for template in data.get('data', []):
+                    if template.get('status') == 'APPROVED':
+                        plantillas.append({
+                            'name': template.get('name'),
+                            'status': template.get('status'),
+                            'category': template.get('category'),
+                            'language': template.get('language')
+                        })
+                
+                print(f"✅ Encontradas {len(plantillas)} plantillas aprobadas")
+                return {
+                    'success': True,
+                    'plantillas': plantillas,
+                    'total': len(plantillas)
+                }
+            else:
+                error_text = response.text
+                print(f"❌ Error obteniendo plantillas: {response.status_code} - {error_text}")
+                return {
+                    'success': False,
+                    'error': f"HTTP {response.status_code}: {error_text}",
+                    'plantillas': []
+                }
+                
+        except Exception as e:
+            error_msg = f"Error obteniendo plantillas: {str(e)}"
+            print(f"❌ {error_msg}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'plantillas': []
+            }
+
     def _limpiar_telefono(self, telefono: str) -> str:
         """
         Limpia y formatea el número de teléfono

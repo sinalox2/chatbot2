@@ -94,14 +94,15 @@ class ContactosProactivosService:
             return False
     
     def enviar_plantilla_whatsapp(self, telefono: str, template_name: str, contacto: Dict) -> bool:
-        """Envía plantilla de WhatsApp Business"""
+        """Envía plantilla de WhatsApp Business con fallback a mensaje personalizado"""
         try:
             token = os.getenv("WHATSAPP_TOKEN")
             phone_number_id = os.getenv("PHONE_NUMBER_ID")
             
             if not token or not phone_number_id:
                 print("❌ Faltan variables de WhatsApp para envío de plantilla")
-                return False
+                print("📱 FALLBACK: Enviando mensaje personalizado")
+                return self.enviar_mensaje_whatsapp(telefono, self.generar_mensaje_personalizado(contacto))
                 
             url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
             
@@ -149,13 +150,36 @@ class ContactosProactivosService:
                 print(f"✅ Plantilla '{template_name}' enviada a {telefono}")
                 return True
             else:
-                print(f"❌ Error enviando plantilla: {response.status_code} - {response.text}")
+                error_text = response.text
+                print(f"❌ Error enviando plantilla: {response.status_code} - {error_text}")
+                
+                # FALLBACK: Si la plantilla no existe, enviar mensaje personalizado
+                if "does not exist" in error_text.lower() or "132001" in error_text:
+                    print(f"📱 FALLBACK: Plantilla '{template_name}' no existe, enviando mensaje personalizado")
+                    mensaje_fallback = self.generar_mensaje_para_plantilla(template_name, contacto)
+                    return self.enviar_mensaje_whatsapp(telefono, mensaje_fallback)
+                
                 return False
                 
         except Exception as e:
             print(f"❌ Error en envío de plantilla: {e}")
-            return False
+            print("📱 FALLBACK: Enviando mensaje personalizado")
+            return self.enviar_mensaje_whatsapp(telefono, self.generar_mensaje_personalizado(contacto))
     
+    def generar_mensaje_para_plantilla(self, template_name: str, contacto: Dict) -> str:
+        """Genera mensaje específico simulando el contenido de una plantilla"""
+        nombre = contacto.get('nombre', 'amigo')
+        
+        if template_name == "saludo_lead":
+            return f"¡Hola {nombre}! 😊 Soy César de Nissan. Me da mucho gusto saludarte. ¿En qué modelo de Nissan estás interesado? Tengo excelentes promociones para ti."
+            
+        elif template_name == "recordatorio_cita":
+            return f"¡Hola {nombre}! 📅 Te recuerdo que tienes una cita pendiente con nosotros en Nissan. ¿Podrías confirmarme si sigues interesado? ¡Tengo muy buenas noticias para ti!"
+            
+        else:
+            # Fallback genérico
+            return f"¡Hola {nombre}! 😊 Soy César de Nissan. ¿Cómo puedo ayudarte con tu próximo vehículo?"
+
     def marcar_contacto_enviado(self, contact_id: int, estado: str = 'enviado'):
         """Marca un contacto como enviado en la base de datos"""
         try:
