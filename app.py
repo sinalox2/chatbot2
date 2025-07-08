@@ -2712,13 +2712,23 @@ def dashboard_contactos_proactivos():
             prioridad = contacto.get('prioridad', 2)
             clase_prioridad = f"prioridad-{'alta' if prioridad == 1 else 'media' if prioridad == 2 else 'baja'}"
             
+            # Extraer plantilla de observaciones si no está disponible la columna
+            template_display = contacto.get('template_whatsapp', '')
+            if not template_display and contacto.get('observaciones'):
+                observaciones = contacto.get('observaciones', '')
+                if 'Template:' in observaciones:
+                    template_display = observaciones.split('Template:')[1].strip().split('|')[0].strip()
+            
+            if not template_display:
+                template_display = 'Sin plantilla'
+            
             html_response += f"""
             <tr class="{clase_prioridad}">
                 <td>{'🔴 Alta' if prioridad == 1 else '🟡 Media' if prioridad == 2 else '🟢 Baja'}</td>
                 <td>{contacto.get('nombre', '')}</td>
                 <td>{contacto.get('telefono', '')}</td>
                 <td>{contacto.get('tipo_campana', '')}</td>
-                <td>{contacto.get('template_whatsapp', 'Sin plantilla')}</td>
+                <td>{template_display}</td>
                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
                     {contacto.get('contexto', '')[:100]}...
                 </td>

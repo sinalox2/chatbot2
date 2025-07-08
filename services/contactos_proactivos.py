@@ -191,6 +191,13 @@ class ContactosProactivosService:
                 telefono = contacto['telefono']
                 template_whatsapp = contacto.get('template_whatsapp')
                 
+                # Si no hay template_whatsapp en el contacto, buscar en observaciones
+                if not template_whatsapp and contacto.get('observaciones'):
+                    observaciones = contacto.get('observaciones', '')
+                    if 'Template:' in observaciones:
+                        template_whatsapp = observaciones.split('Template:')[1].strip().split('|')[0].strip()
+                        print(f"📱 Template encontrado en observaciones: {template_whatsapp}")
+                
                 # Usar plantilla si está disponible, sino generar mensaje personalizado
                 if template_whatsapp:
                     print(f"📱 Enviando plantilla '{template_whatsapp}' a {contacto['nombre']} ({telefono})")
@@ -232,7 +239,7 @@ class ContactosProactivosService:
                             }).execute()
                     else:
                     # Marcar como error
-                    supabase.table('contactos_proactivos').update({
+                        supabase.table('contactos_proactivos').update({
                         'estado': 'error',
                         'updated_at': datetime.now().isoformat()
                     }).eq('id', contacto['id']).execute()
@@ -260,9 +267,23 @@ class ContactosProactivosService:
                 'prioridad': prioridad,
                 'fecha_programada': (fecha_programada or datetime.now()).isoformat(),
                 'mensaje_personalizado': mensaje_personalizado,
-                'observaciones': observaciones,
-                'template_whatsapp': template_whatsapp
+                'observaciones': observaciones
             }
+            
+            # Agregar template_whatsapp solo si se proporciona y la columna existe
+            if template_whatsapp:
+                # Verificar si la columna existe haciendo una consulta de prueba
+                try:
+                    test_response = supabase.table('contactos_proactivos').select('template_whatsapp').limit(1).execute()
+                    data['template_whatsapp'] = template_whatsapp
+                    print(f"✅ Columna template_whatsapp disponible, agregando: {template_whatsapp}")
+                except Exception as e:
+                    print(f"⚠️ Columna template_whatsapp no disponible, usando mensaje personalizado: {e}")
+                    # Guardar la plantilla en observaciones como fallback
+                    if observaciones:
+                        data['observaciones'] = f"{observaciones} | Template: {template_whatsapp}"
+                    else:
+                        data['observaciones'] = f"Template: {template_whatsapp}"
             
             response = supabase.table('contactos_proactivos').insert(data).execute()
             
