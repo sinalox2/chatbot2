@@ -7,6 +7,63 @@ from collections import defaultdict
 # Cambiar de set simple a dict con timestamps
 mensajes_procesados = defaultdict(float)
 
+try:
+    from services.contactos_proactivos import contactos_proactivos_service
+    CONTACTOS_PROACTIVOS_AVAILABLE = True
+    print("✅ Servicio de contactos proactivos importado correctamente")
+except ImportError as e:
+    print(f"⚠️ Error importando contactos proactivos: {e}")
+    CONTACTOS_PROACTIVOS_AVAILABLE = False
+
+def detectar_cliente_para_seguimiento_proactivo(telefono, nombre, contexto_conversacion):
+    """
+    Función para detectar automáticamente clientes que necesitan seguimiento proactivo
+    Se puede llamar desde el flujo principal cuando un cliente se enfría
+    """
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return False
+    
+    try:
+        # Detectar si es un lead que se enfrió
+        if any(palabra in contexto_conversacion.lower() for palabra in 
+               ['lo voy a pensar', 'después', 'más tarde', 'ahorita no', 'luego te digo']):
+            
+            # Programar seguimiento en 24 horas
+            exito = contactos_proactivos_service.programar_mensaje_diferido(
+                telefono=telefono,
+                nombre=nombre,
+                contexto=f"Cliente que mostró interés pero decidió pensarlo. Contexto: {contexto_conversacion[:200]}",
+                horas_delay=24,
+                tipo_campana='seguimiento'
+            )
+            
+            if exito:
+                print(f"📅 Seguimiento proactivo programado para {nombre} ({telefono})")
+                return True
+        
+        # Detectar si es un lead con objeción de precio
+        elif any(palabra in contexto_conversacion.lower() for palabra in 
+                ['caro', 'precio alto', 'no puedo', 'muy caro']):
+            
+            # Programar seguimiento con nueva promoción en 3 días
+            exito = contactos_proactivos_service.programar_mensaje_diferido(
+                telefono=telefono,
+                nombre=nombre,
+                contexto=f"Cliente con objeción de precio. Contexto: {contexto_conversacion[:200]}",
+                horas_delay=72,  # 3 días
+                tipo_campana='promocion'
+            )
+            
+            if exito:
+                print(f"🎯 Seguimiento promocional programado para {nombre} ({telefono})")
+                return True
+                
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error detectando seguimiento proactivo: {e}")
+        return False
+
 def limpiar_mensajes_antiguos():
     """Limpia mensajes procesados más antiguos de 1 hora"""
     limite = time.time() - 3600  # 1 hora
@@ -1271,6 +1328,106 @@ def whatsapp_reply():
         data = request.get_json()
         print("🔔 Webhook recibido:", data)
 
+        # Obtener el tipo de evento
+        event_type = data.get("event", "message_created")
+        
+        # =====================================================
+        # MANEJAR DIFERENTES TIPOS DE EVENTOS
+        # =====================================================
+        
+        if event_type == "conversation_created":
+            # Nueva conversación iniciada
+            return manejar_conversacion_creada(data)
+            
+        elif event_type == "conversation_status_changed":
+            # Estado de conversación cambió (resuelto, cerrado, etc.)
+            return manejar_cambio_estado_conversacion(data)
+            
+        elif event_type == "message_created":
+            # Mensaje normal - lógica existente
+            return manejar_mensaje_creado(data)
+            
+        else:
+            print(f"⚠️ Evento no manejado: {event_type}")
+            return jsonify({"status": "ok", "event": event_type})
+
+    except Exception as e:
+        print(f"❌ Error en webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+def manejar_conversacion_creada(data):
+    """Maneja cuando se crea una nueva conversación"""
+    try:
+        conversation = data.get("conversation", {})
+        contact = conversation.get("contact_inbox", {})
+        telefono = contact.get("source_id", "")
+        nombre = data.get("sender", {}).get("name", "Nuevo Lead")
+        
+        if telefono and CONTACTOS_PROACTIVOS_AVAILABLE:
+            # Programar seguimiento automático para nuevo lead
+            contexto = f"Nuevo lead detectado automáticamente. Conversación iniciada desde {conversation.get('channel', 'WhatsApp')}."
+            
+            contactos_proactivos_service.programar_mensaje_diferido(
+                telefono=telefono,
+                nombre=nombre,
+                contexto=contexto,
+                horas_delay=48,  # Seguimiento en 2 días si no hay respuesta
+                tipo_campana='seguimiento'
+            )
+            
+            print(f"🆕 Nuevo lead detectado y seguimiento programado: {nombre} ({telefono})")
+        
+        return jsonify({"status": "ok", "action": "new_lead_detected"})
+        
+    except Exception as e:
+        print(f"❌ Error manejando conversación creada: {e}")
+        return jsonify({"error": str(e)}), 500
+
+def manejar_cambio_estado_conversacion(data):
+    """Maneja cuando cambia el estado de una conversación"""
+    try:
+        conversation = data.get("conversation", {})
+        nuevo_estado = conversation.get("status", "")
+        contact = conversation.get("contact_inbox", {})
+        telefono = contact.get("source_id", "")
+        nombre = data.get("sender", {}).get("name", "Cliente")
+        
+        if telefono and nuevo_estado in ["resolved", "snoozed"] and CONTACTOS_PROACTIVOS_AVAILABLE:
+            # Conversación cerrada o pospuesta - programar reactivación
+            
+            if nuevo_estado == "resolved":
+                # Conversación resuelta - seguimiento de satisfacción en 7 días
+                contexto = f"Conversación resuelta. Seguimiento de satisfacción y posibles necesidades adicionales."
+                delay_hours = 168  # 7 días
+                tipo = 'reactivacion'
+                
+            elif nuevo_estado == "snoozed":
+                # Conversación pospuesta - seguimiento más pronto
+                contexto = f"Conversación pospuesta. Cliente puede necesitar seguimiento."
+                delay_hours = 48  # 2 días
+                tipo = 'seguimiento'
+            
+            contactos_proactivos_service.programar_mensaje_diferido(
+                telefono=telefono,
+                nombre=nombre,
+                contexto=contexto,
+                horas_delay=delay_hours,
+                tipo_campana=tipo
+            )
+            
+            print(f"🔄 Conversación {nuevo_estado} - seguimiento programado: {nombre} ({telefono})")
+        
+        return jsonify({"status": "ok", "action": "status_change_handled"})
+        
+    except Exception as e:
+        print(f"❌ Error manejando cambio de estado: {e}")
+        return jsonify({"error": str(e)}), 500
+
+def manejar_mensaje_creado(data):
+    """Maneja mensajes creados - lógica original"""
+    try:
         # Limpiar mensajes antiguos periódicamente
         limpiar_mensajes_antiguos()
 
@@ -1321,6 +1478,9 @@ def whatsapp_reply():
 
         print(f"🤖 Respuesta generada: {respuesta_final}")
 
+        # INTEGRACIÓN AUTOMÁTICA DE SEGUIMIENTO PROACTIVO
+        integrar_seguimiento_proactivo_automatico(telefono, nombre_perfil, incoming_msg, respuesta_final)
+
         # Determinar canal de respuesta para evitar bucles
         canal_respuesta = determinar_canal_respuesta(data)
         print(f"📡 Canal de respuesta: {canal_respuesta}")
@@ -1344,10 +1504,206 @@ def whatsapp_reply():
         return jsonify({"status": "ok", "canal": canal_respuesta, "id_unico": id_unico})
 
     except Exception as e:
-        print(f"❌ Error en webhook: {e}")
+        print(f"❌ Error procesando mensaje: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+def integrar_seguimiento_proactivo_automatico(telefono, nombre_perfil, incoming_msg, respuesta_final):
+    """
+    Integra automáticamente el sistema de seguimiento proactivo
+    basado en las respuestas del cliente
+    """
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return
+    
+    try:
+        mensaje_lower = incoming_msg.lower()
+        
+        # Detectar respuestas que indican que el cliente necesita seguimiento
+        patterns_seguimiento = {
+            'pensando': {
+                'keywords': ['lo voy a pensar', 'pensarlo', 'después', 'más tarde', 'ahorita no', 'luego'],
+                'delay_hours': 24,
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente que decidió pensarlo'
+            },
+            'precio_alto': {
+                'keywords': ['caro', 'precio alto', 'muy caro', 'no puedo pagar', 'está salado'],
+                'delay_hours': 72,  # 3 días
+                'tipo': 'promocion',
+                'contexto_extra': 'Objeción de precio detectada'
+            },
+            'sin_enganche': {
+                'keywords': ['no tengo enganche', 'sin dinero', 'no tengo ahorros', 'no tengo para enganche'],
+                'delay_hours': 168,  # 1 semana
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente sin enganche disponible'
+            },
+            'buro_malo': {
+                'keywords': ['mal buró', 'buro malo', 'problemas crediticios', 'estoy en buró'],
+                'delay_hours': 48,
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente con historial crediticio complicado - Plan Sí Fácil'
+            },
+            'comparando': {
+                'keywords': ['voy a comparar', 'checar otras opciones', 'ver en otros lados', 'comparar precios'],
+                'delay_hours': 48,
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente comparando opciones en competencia'
+            },
+            'sin_tiempo': {
+                'keywords': ['no tengo tiempo', 'muy ocupado', 'después hablamos', 'estoy trabajando'],
+                'delay_hours': 12,  # Seguimiento más pronto
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente ocupado, requiere seguimiento en mejor momento'
+            },
+            'necesita_pensar': {
+                'keywords': ['necesito pensarlo', 'consultarlo', 'hablar con mi esposo', 'hablar con mi esposa'],
+                'delay_hours': 48,
+                'tipo': 'seguimiento',
+                'contexto_extra': 'Cliente necesita consultar decisión'
+            }
+        }
+        
+        for categoria, config in patterns_seguimiento.items():
+            if any(keyword in mensaje_lower for keyword in config['keywords']):
+                
+                # Crear contexto detallado
+                contexto = f"{config['contexto_extra']}. "
+                contexto += f"Último mensaje: '{incoming_msg}'. "
+                contexto += f"Respuesta del bot: '{respuesta_final[:100]}...'"
+                
+                # Programar seguimiento automático
+                exito = contactos_proactivos_service.programar_mensaje_diferido(
+                    telefono=telefono,
+                    nombre=nombre_perfil,
+                    contexto=contexto,
+                    horas_delay=config['delay_hours'],
+                    tipo_campana=config['tipo']
+                )
+                
+                if exito:
+                    print(f"🎯 Seguimiento automático programado: {categoria} para {nombre_perfil} en {config['delay_hours']} horas")
+                    
+                    # Notificar al sistema (opcional)
+                    if ADVANCED_FEATURES:
+                        try:
+                            from services.notification_system import notificar_evento
+                            notificar_evento(
+                                'seguimiento_programado',
+                                f"Seguimiento automático programado para {nombre_perfil}",
+                                {'categoria': categoria, 'delay_hours': config['delay_hours']}
+                            )
+                        except:
+                            pass
+                
+                break  # Solo uno por mensaje
+                
+    except Exception as e:
+        print(f"❌ Error integrando seguimiento proactivo: {e}")
+
+# =====================================================
+# FUNCIONES AUXILIARES PARA EVENTOS ESPECÍFICOS
+# =====================================================
+
+def detectar_lead_abandonado_automatico(telefono, conversation_data):
+    """
+    Detecta automáticamente leads que abandonaron la conversación
+    basado en el comportamiento en la conversación
+    """
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return False
+    
+    try:
+        # Obtener información del lead si existe
+        lead_info = None
+        if TRACKING_AVAILABLE and lead_tracker:
+            lead = lead_tracker.obtener_lead(telefono)
+            if lead:
+                lead_info = {
+                    'nombre': lead.nombre,
+                    'estado': lead.estado.value,
+                    'modelo_interes': lead.info_prospecto.modelo_interes,
+                    'temperatura': lead.temperatura.value
+                }
+        
+        if not lead_info:
+            return False
+        
+        # Solo para leads calientes o tibios que abandonan
+        if lead_info['temperatura'] in ['caliente', 'tibio']:
+            contexto = f"Lead {lead_info['temperatura']} abandonó conversación. "
+            contexto += f"Estado actual: {lead_info['estado']}. "
+            if lead_info['modelo_interes']:
+                contexto += f"Interés en: {lead_info['modelo_interes']}. "
+            contexto += "Requiere seguimiento urgente para no perder venta."
+            
+            # Programar seguimiento urgente
+            delay_hours = 4 if lead_info['temperatura'] == 'caliente' else 12
+            
+            exito = contactos_proactivos_service.programar_mensaje_diferido(
+                telefono=telefono,
+                nombre=lead_info['nombre'],
+                contexto=contexto,
+                horas_delay=delay_hours,
+                tipo_campana='seguimiento'
+            )
+            
+            if exito:
+                print(f"🚨 Lead {lead_info['temperatura']} abandonado - seguimiento urgente programado: {lead_info['nombre']}")
+                return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error detectando lead abandonado: {e}")
+        return False
+
+def programar_seguimiento_por_resolucion(telefono, nombre, tipo_resolucion):
+    """
+    Programa seguimiento específico según cómo se resolvió la conversación
+    """
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return False
+    
+    try:
+        # Diferentes estrategias según tipo de resolución
+        if tipo_resolucion == "venta_cerrada":
+            # Cliente compró - seguimiento de satisfacción
+            contexto = "Venta cerrada exitosamente. Seguimiento de satisfacción y servicios post-venta."
+            delay_hours = 168  # 1 semana
+            tipo_campana = 'reactivacion'
+            
+        elif tipo_resolucion == "informacion_proporcionada":
+            # Solo se dio información - seguimiento de decisión
+            contexto = "Información proporcionada al cliente. Seguimiento para conocer decisión."
+            delay_hours = 48  # 2 días
+            tipo_campana = 'seguimiento'
+            
+        elif tipo_resolucion == "cotizacion_enviada":
+            # Se envió cotización - seguimiento crítico
+            contexto = "Cotización enviada al cliente. Seguimiento crítico para cierre de venta."
+            delay_hours = 24  # 1 día
+            tipo_campana = 'seguimiento'
+            
+        else:
+            # Resolución general
+            contexto = "Conversación resuelta. Seguimiento de cortesía y posibles necesidades adicionales."
+            delay_hours = 72  # 3 días
+            tipo_campana = 'reactivacion'
+        
+        return contactos_proactivos_service.programar_mensaje_diferido(
+            telefono=telefono,
+            nombre=nombre,
+            contexto=contexto,
+            horas_delay=delay_hours,
+            tipo_campana=tipo_campana
+        )
+        
+    except Exception as e:
+        print(f"❌ Error programando seguimiento por resolución: {e}")
+        return False
 
 @app.route("/")
 def home():
@@ -2260,6 +2616,571 @@ def test_memoria_corregida():
         import traceback
         traceback.print_exc()
         return f"❌ Error probando correcciones de memoria: {e}"
+    
+@app.route("/contactos_proactivos")
+def dashboard_contactos_proactivos():
+    """Dashboard para gestionar contactos proactivos"""
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return "❌ Servicio de contactos proactivos no disponible"
+    
+    try:
+        # Obtener contactos pendientes
+        contactos_pendientes = contactos_proactivos_service.obtener_contactos_pendientes(limite=20)
+        
+        # Obtener estadísticas
+        estadisticas = contactos_proactivos_service.obtener_estadisticas()
+        
+        html_response = f"""
+        <html>
+        <head>
+            <title>Contactos Proactivos - Nissan Bot</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1200px; margin: 0 auto; }}
+                .card {{ background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .stats {{ display: flex; flex-wrap: wrap; gap: 15px; }}
+                .stat {{ background: #e3f2fd; padding: 15px; border-radius: 5px; text-align: center; min-width: 120px; }}
+                .stat h3 {{ margin: 0; color: #1976d2; }}
+                .stat p {{ margin: 5px 0; font-size: 24px; font-weight: bold; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                .prioridad-alta {{ background-color: #ffebee; }}
+                .prioridad-media {{ background-color: #fff3e0; }}
+                .prioridad-baja {{ background-color: #e8f5e8; }}
+                .form-section {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                .form-group {{ margin: 10px 0; }}
+                .form-group label {{ display: block; margin-bottom: 5px; font-weight: bold; }}
+                .form-group input, .form-group select, .form-group textarea {{ width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }}
+                .btn {{ background: #1976d2; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }}
+                .btn:hover {{ background: #1565c0; }}
+                .btn-success {{ background: #4caf50; }}
+                .btn-warning {{ background: #ff9800; }}
+            </style>
+        </head>
+        <body>
+        <div class="container">
+            <h1>🤖 Contactos Proactivos - Sistema de Seguimiento</h1>
+            
+            <div class="card">
+                <h2>📊 Estadísticas Generales</h2>
+                <div class="stats">
+                    <div class="stat">
+                        <h3>Total</h3>
+                        <p>{estadisticas.get('total', 0)}</p>
+                    </div>
+                    <div class="stat">
+                        <h3>Pendientes</h3>
+                        <p>{estadisticas.get('pendientes', 0)}</p>
+                    </div>
+                    <div class="stat">
+                        <h3>Enviados</h3>
+                        <p>{estadisticas.get('enviados', 0)}</p>
+                    </div>
+                    <div class="stat">
+                        <h3>Respondidos</h3>
+                        <p>{estadisticas.get('respondidos', 0)}</p>
+                    </div>
+                    <div class="stat">
+                        <h3>Errores</h3>
+                        <p>{estadisticas.get('errores', 0)}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>📋 Contactos Pendientes ({len(contactos_pendientes)})</h2>
+                <div style="margin: 10px 0;">
+                    <a href="/enviar_contactos_ahora" class="btn btn-success">🚀 Enviar Todos Ahora</a>
+                    <a href="/test_contacto_proactivo" class="btn btn-warning">🧪 Enviar Prueba</a>
+                </div>
+                
+                <table>
+                    <tr>
+                        <th>Prioridad</th>
+                        <th>Nombre</th>
+                        <th>Teléfono</th>
+                        <th>Tipo</th>
+                        <th>Plantilla</th>
+                        <th>Contexto</th>
+                        <th>Programado</th>
+                        <th>Observaciones</th>
+                    </tr>
+        """
+        
+        for contacto in contactos_pendientes:
+            prioridad = contacto.get('prioridad', 2)
+            clase_prioridad = f"prioridad-{'alta' if prioridad == 1 else 'media' if prioridad == 2 else 'baja'}"
+            
+            html_response += f"""
+            <tr class="{clase_prioridad}">
+                <td>{'🔴 Alta' if prioridad == 1 else '🟡 Media' if prioridad == 2 else '🟢 Baja'}</td>
+                <td>{contacto.get('nombre', '')}</td>
+                <td>{contacto.get('telefono', '')}</td>
+                <td>{contacto.get('tipo_campana', '')}</td>
+                <td>{contacto.get('template_whatsapp', 'Sin plantilla')}</td>
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                    {contacto.get('contexto', '')[:100]}...
+                </td>
+                <td>Ahora</td>
+                <td>{contacto.get('observaciones', '') or ''}</td>
+            </tr>
+            """
+        
+        html_response += f"""
+                </table>
+            </div>
+            
+            <div class="card">
+                <h2>➕ Agregar Nuevo Contacto Proactivo</h2>
+                <form action="/agregar_contacto_proactivo" method="post" class="form-section">
+                    <div class="form-group">
+                        <label for="telefono">Teléfono (con +52):</label>
+                        <input type="text" id="telefono" name="telefono" placeholder="+5216641234567" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="nombre">Nombre:</label>
+                        <input type="text" id="nombre" name="nombre" placeholder="Juan Pérez" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="tipo_campana">Tipo de Campaña:</label>
+                        <select id="tipo_campana" name="tipo_campana">
+                            <option value="seguimiento">Seguimiento</option>
+                            <option value="promocion">Promoción</option>
+                            <option value="reactivacion">Reactivación</option>
+                            <option value="prospecto_nuevo">Prospecto Nuevo</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="template_whatsapp">Plantilla de WhatsApp (requerida para primer contacto):</label>
+                        <select id="template_whatsapp" name="template_whatsapp" required>
+                            <option value="">Seleccione una plantilla</option>
+                            <option value="saludo_lead">Saludo Lead - Primer contacto general</option>
+                            <option value="recordatorio_cita">Recordatorio de Cita - Para citas agendadas</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="prioridad">Prioridad:</label>
+                        <select id="prioridad" name="prioridad">
+                            <option value="1">🔴 Alta (envía inmediatamente)</option>
+                            <option value="2" selected>🟡 Media (envía en próximo ciclo)</option>
+                            <option value="3">🟢 Baja (envía cuando sea conveniente)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="contexto">Contexto (para que el bot entienda la situación):</label>
+                        <textarea id="contexto" name="contexto" rows="3" placeholder="Ej: Cliente interesado en Sentra hace 1 semana, mencionó enganche de $20,000, trabaja en maquiladora, no ha respondido después de cotización..." required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="mensaje_personalizado">Mensaje Personalizado (opcional):</label>
+                        <textarea id="mensaje_personalizado" name="mensaje_personalizado" rows="2" placeholder="Deja vacío para que el bot genere el mensaje automáticamente basado en el contexto"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="observaciones">Observaciones:</label>
+                        <input type="text" id="observaciones" name="observaciones" placeholder="Ej: Lead de Facebook Ads, cliente referido, etc.">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="activar_seguimiento" name="activar_seguimiento" value="1">
+                            Activar seguimiento automático cada 20 horas (5 mensajes máximo)
+                        </label>
+                    </div>
+                    
+                    <button type="submit" class="btn">➕ Agregar Contacto</button>
+                </form>
+            </div>
+            
+            <div class="card">
+                <h2>📈 Distribución por Tipo de Campaña</h2>
+                <ul>
+        """
+        
+        for tipo, cantidad in estadisticas.get('por_tipo', {}).items():
+            html_response += f"<li><strong>{tipo.title()}:</strong> {cantidad} contactos</li>"
+        
+        html_response += """
+                </ul>
+            </div>
+            
+            <p><a href="/">🏠 Volver al inicio</a> | <a href="/contactos_proactivos">🔄 Actualizar</a></p>
+        </div>
+        </body>
+        </html>
+        """
+        
+        return html_response
+        
+    except Exception as e:
+        return f"❌ Error cargando dashboard: {e}"
+    
+@app.route("/agregar_contacto_proactivo", methods=["POST"])
+def agregar_contacto_proactivo():
+    """Endpoint para agregar nuevo contacto proactivo"""
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return "❌ Servicio no disponible"
+    
+    try:
+        # Obtener datos del formulario
+        telefono = request.form.get('telefono', '').strip()
+        nombre = request.form.get('nombre', '').strip()
+        contexto = request.form.get('contexto', '').strip()
+        tipo_campana = request.form.get('tipo_campana', 'seguimiento')
+        prioridad = int(request.form.get('prioridad', 2))
+        mensaje_personalizado = request.form.get('mensaje_personalizado', '').strip() or None
+        observaciones = request.form.get('observaciones', '').strip() or None
+        template_whatsapp = request.form.get('template_whatsapp', '').strip()
+        activar_seguimiento = request.form.get('activar_seguimiento') == '1'
+        
+        # Validaciones básicas
+        if not telefono or not nombre or not contexto or not template_whatsapp:
+            return "❌ Faltan datos requeridos (teléfono, nombre, contexto, plantilla WhatsApp)"
+        
+        if not telefono.startswith('+52'):
+            telefono = '+52' + telefono.lstrip('+')
+        
+        # Agregar contacto
+        exito = contactos_proactivos_service.agregar_contacto_proactivo(
+            telefono=telefono,
+            nombre=nombre,
+            contexto=contexto,
+            tipo_campana=tipo_campana,
+            prioridad=prioridad,
+            mensaje_personalizado=mensaje_personalizado,
+            observaciones=observaciones,
+            template_whatsapp=template_whatsapp
+        )
+        
+        if exito:
+            # Si se activó el seguimiento automático, programar mensajes adicionales
+            if activar_seguimiento:
+                contactos_proactivos_service.programar_mensajes_constantes(
+                    telefono=telefono,
+                    nombre=nombre,
+                    contexto=contexto,
+                    max_mensajes=5,
+                    intervalo_horas=20
+                )
+            
+            return f"""
+            <html>
+            <head><title>Contacto Agregado</title></head>
+            <body style="font-family: Arial; margin: 20px;">
+                <h1>✅ Contacto Agregado Exitosamente</h1>
+                <p><strong>Nombre:</strong> {nombre}</p>
+                <p><strong>Teléfono:</strong> {telefono}</p>
+                <p><strong>Tipo:</strong> {tipo_campana}</p>
+                <p><strong>Plantilla WhatsApp:</strong> {template_whatsapp}</p>
+                <p><strong>Prioridad:</strong> {'🔴 Alta' if prioridad == 1 else '🟡 Media' if prioridad == 2 else '🟢 Baja'}</p>
+                <p><strong>Contexto:</strong> {contexto[:200]}...</p>
+                {'<p><strong>Seguimiento automático:</strong> ✅ Activado (5 mensajes cada 20 horas)</p>' if activar_seguimiento else ''}
+                
+                <p>El contacto será procesado automáticamente según su prioridad.</p>
+                
+                <p><a href="/contactos_proactivos">🔙 Volver al dashboard</a></p>
+            </body>
+            </html>
+            """
+        else:
+            return "❌ Error agregando contacto"
+        
+    except Exception as e:
+        return f"❌ Error: {e}"
+    
+@app.route("/enviar_contactos_ahora")
+def enviar_contactos_ahora():
+    """Endpoint para enviar todos los contactos pendientes inmediatamente"""
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return "❌ Servicio no disponible"
+    
+    try:
+        # Obtener contactos antes del envío
+        contactos_antes = contactos_proactivos_service.obtener_contactos_pendientes(limite=50)
+        
+        # Procesar contactos
+        contactos_proactivos_service.procesar_contactos_pendientes()
+        
+        # Obtener contactos después del envío
+        contactos_despues = contactos_proactivos_service.obtener_contactos_pendientes(limite=50)
+        
+        enviados = len(contactos_antes) - len(contactos_despues)
+        
+        return f"""
+        <html>
+        <head><title>Envío Masivo Completado</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .success {{ background: #e8f5e8; padding: 15px; border-radius: 5px; color: #2e7d32; }}
+            .info {{ background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 10px 0; }}
+        </style>
+        </head>
+        <body>
+            <h1>🚀 Envío Masivo Completado</h1>
+            
+            <div class="success">
+                <h2>✅ Resultados del Envío</h2>
+                <p><strong>Contactos procesados:</strong> {enviados}</p>
+                <p><strong>Contactos pendientes restantes:</strong> {len(contactos_despues)}</p>
+                <p><strong>Tiempo de procesamiento:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </div>
+            
+            <div class="info">
+                <h3>📋 Contactos Enviados:</h3>
+                <ul>
+        """
+        
+        # Mostrar contactos que fueron enviados
+        return_html = ""
+        contactos_enviados = [c for c in contactos_antes if c not in contactos_despues]
+        for contacto in contactos_enviados[:10]:  # Mostrar máximo 10
+            return_html += f"<li>{contacto.get('nombre')} ({contacto.get('telefono')}) - {contacto.get('tipo_campana')}</li>"
+        
+        if len(contactos_enviados) > 10:
+            return_html += f"<li>... y {len(contactos_enviados) - 10} más</li>"
+        
+        return_html += """
+                </ul>
+            </div>
+            
+            <p><a href="/contactos_proactivos">🔙 Volver al dashboard</a></p>
+        </body>
+        </html>
+        """
+        
+        return return_html
+        
+    except Exception as e:
+        return f"❌ Error procesando contactos: {e}"
+    
+@app.route("/test_contacto_proactivo")
+def test_contacto_proactivo():
+    """Endpoint para probar el sistema con un contacto de prueba"""
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return "❌ Servicio no disponible"
+    
+    try:
+        # Crear contacto de prueba
+        telefono_test = "+526871006601"  # Número de prueba
+        nombre_test = "Usuario Test"
+        contexto_test = "Cliente de prueba para validar el sistema de contactos proactivos. Interesado en Sentra."
+        
+        # Agregar contacto de prueba
+        exito = contactos_proactivos_service.agregar_contacto_proactivo(
+            telefono=telefono_test,
+            nombre=nombre_test,
+            contexto=contexto_test,
+            tipo_campana='seguimiento',
+            prioridad=1,  # Alta prioridad para envío inmediato
+            observaciones="Contacto de prueba del sistema"
+        )
+        
+        if not exito:
+            return "❌ Error creando contacto de prueba"
+        
+        # Generar mensaje de prueba
+        contacto_test = {
+            'telefono': telefono_test,
+            'nombre': nombre_test,
+            'contexto': contexto_test,
+            'tipo_campana': 'seguimiento',
+            'mensaje_personalizado': None
+        }
+        
+        mensaje_generado = contactos_proactivos_service.generar_mensaje_personalizado(contacto_test)
+        
+        return f"""
+        <html>
+        <head><title>Test Contacto Proactivo</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; }}
+            .test-section {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }}
+            .message-preview {{ background: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 5px solid #2196f3; }}
+        </style>
+        </head>
+        <body>
+            <h1>🧪 Test del Sistema de Contactos Proactivos</h1>
+            
+            <div class="test-section">
+                <h2>📋 Datos del Contacto de Prueba</h2>
+                <p><strong>Nombre:</strong> {nombre_test}</p>
+                <p><strong>Teléfono:</strong> {telefono_test}</p>
+                <p><strong>Contexto:</strong> {contexto_test}</p>
+                <p><strong>Tipo:</strong> Seguimiento</p>
+                <p><strong>Prioridad:</strong> 🔴 Alta</p>
+            </div>
+            
+            <div class="message-preview">
+                <h3>💬 Mensaje Generado Automáticamente:</h3>
+                <p><em>"{mensaje_generado}"</em></p>
+            </div>
+            
+            <div class="test-section">
+                <h3>🎯 Próximos Pasos:</h3>
+                <ol>
+                    <li>El contacto se agregó a la cola de envío</li>
+                    <li>Será procesado automáticamente en el próximo ciclo</li>
+                    <li>Puedes enviarlo inmediatamente usando "Enviar Todos Ahora"</li>
+                    <li>El mensaje se adaptará al contexto proporcionado</li>
+                </ol>
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <a href="/enviar_contactos_ahora" style="background: #4caf50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">🚀 Enviar Ahora</a>
+                <a href="/contactos_proactivos" style="background: #2196f3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-left: 10px;">📋 Ver Dashboard</a>
+            </div>
+            
+            <p><strong>Nota:</strong> El número {telefono_test} es solo para pruebas. Cambia por un número real para envío efectivo.</p>
+        </body>
+        </html>
+        """
+        
+    except Exception as e:
+        return f"❌ Error en test: {e}"
+    
+@app.route("/estadisticas_proactivos")
+def estadisticas_proactivos():
+    """Endpoint con estadísticas detalladas del sistema proactivo"""
+    if not CONTACTOS_PROACTIVOS_AVAILABLE:
+        return "❌ Servicio no disponible"
+    
+    try:
+        estadisticas = contactos_proactivos_service.obtener_estadisticas()
+        
+        # Obtener historial reciente
+        response = supabase.table('contactos_proactivos').select('*').order('created_at', desc=True).limit(20).execute()
+        historial_reciente = response.data if response.data else []
+        
+        return f"""
+        <html>
+        <head>
+            <title>Estadísticas Contactos Proactivos</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1000px; margin: 0 auto; }}
+                .card {{ background: white; padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .metric {{ display: inline-block; background: #e3f2fd; margin: 10px; padding: 15px; border-radius: 5px; text-align: center; min-width: 120px; }}
+                .metric h4 {{ margin: 0; color: #1976d2; }}
+                .metric p {{ margin: 5px 0; font-size: 20px; font-weight: bold; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                .estado-pendiente {{ background-color: #fff3e0; }}
+                .estado-enviado {{ background-color: #e8f5e8; }}
+                .estado-respondido {{ background-color: #e3f2fd; }}
+                .estado-error {{ background-color: #ffebee; }}
+            </style>
+        </head>
+        <body>
+        <div class="container">
+            <h1>📊 Estadísticas Detalladas - Contactos Proactivos</h1>
+            
+            <div class="card">
+                <h2>📈 Métricas Generales</h2>
+                <div class="metric">
+                    <h4>Total Contactos</h4>
+                    <p>{estadisticas.get('total', 0)}</p>
+                </div>
+                <div class="metric">
+                    <h4>Pendientes</h4>
+                    <p>{estadisticas.get('pendientes', 0)}</p>
+                </div>
+                <div class="metric">
+                    <h4>Enviados</h4>
+                    <p>{estadisticas.get('enviados', 0)}</p>
+                </div>
+                <div class="metric">
+                    <h4>Respondidos</h4>
+                    <p>{estadisticas.get('respondidos', 0)}</p>
+                </div>
+                <div class="metric">
+                    <h4>Errores</h4>
+                    <p>{estadisticas.get('errores', 0)}</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🎯 Distribución por Tipo de Campaña</h2>
+                <table>
+                    <tr><th>Tipo</th><th>Cantidad</th><th>Porcentaje</th></tr>
+        """
+        
+        total = estadisticas.get('total', 1)  # Evitar división por cero
+        for tipo, cantidad in estadisticas.get('por_tipo', {}).items():
+            porcentaje = (cantidad / total) * 100 if total > 0 else 0
+            return_html += f"""
+            <tr>
+                <td>{tipo.replace('_', ' ').title()}</td>
+                <td>{cantidad}</td>
+                <td>{porcentaje:.1f}%</td>
+            </tr>
+            """
+        
+        # Calcular tasa de respuesta
+        enviados = estadisticas.get('enviados', 0)
+        respondidos = estadisticas.get('respondidos', 0)
+        tasa_respuesta = (respondidos / enviados * 100) if enviados > 0 else 0
+        
+        return_html += f"""
+                </table>
+            </div>
+            
+            <div class="card">
+                <h2>📊 Métricas de Rendimiento</h2>
+                <p><strong>Tasa de Respuesta:</strong> {tasa_respuesta:.1f}% ({respondidos}/{enviados})</p>
+                <p><strong>Tasa de Error:</strong> {(estadisticas.get('errores', 0) / total * 100):.1f}% si hay contactos</p>
+                <p><strong>Eficiencia de Envío:</strong> {((enviados + respondidos) / total * 100):.1f}% si hay contactos</p>
+            </div>
+            
+            <div class="card">
+                <h2>📝 Historial Reciente (últimos 20)</h2>
+                <table>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Nombre</th>
+                        <th>Teléfono</th>
+                        <th>Tipo</th>
+                        <th>Estado</th>
+                        <th>Prioridad</th>
+                    </tr>
+        """
+        
+        for contacto in historial_reciente:
+            estado = contacto.get('estado', 'pendiente')
+            prioridad = contacto.get('prioridad', 2)
+            fecha = contacto.get('created_at', '')[:10] if contacto.get('created_at') else ''
+            
+            return_html += f"""
+            <tr class="estado-{estado}">
+                <td>{fecha}</td>
+                <td>{contacto.get('nombre', '')}</td>
+                <td>{contacto.get('telefono', '')}</td>
+                <td>{contacto.get('tipo_campana', '').replace('_', ' ').title()}</td>
+                <td>{estado.title()}</td>
+                <td>{'🔴' if prioridad == 1 else '🟡' if prioridad == 2 else '🟢'}</td>
+            </tr>
+            """
+        
+        return_html += """
+                </table>
+            </div>
+            
+            <p><a href="/contactos_proactivos">🔙 Dashboard Principal</a> | <a href="/">🏠 Inicio</a></p>
+        </div>
+        </body>
+        </html>
+        """
+        
+        return return_html
+        
+    except Exception as e:
+        return f"❌ Error obteniendo estadísticas: {e}"
 
 if __name__ == "__main__":
     print("🚀 Iniciando aplicación Flask...")
