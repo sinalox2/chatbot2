@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "start": "python app.py"
+    "start": "python3 app.py"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.11"
