@@ -1,0 +1,648 @@
+{% extends "base.html" %}
+
+{% block title %}Carga Masiva - Nissan CRM{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="fas fa-upload"></i> Carga Masiva de Contactos</h2>
+        <div class="d-flex gap-2">
+            <button class="btn btn-success" onclick="downloadTemplate()">
+                <i class="fas fa-download"></i> Descargar Plantilla
+            </button>
+            <button class="btn btn-info" onclick="showUploadHistory()">
+                <i class="fas fa-history"></i> Historial
+            </button>
+        </div>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-cloud-upload-alt"></i> Subir Archivo</h5>
+                </div>
+                <div class="card-body">
+                    <div class="upload-area" id="upload-area">
+                        <div class="text-center">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                            <p class="mb-2">Arrastra tu archivo aquí o haz clic para seleccionar</p>
+                            <p class="small text-muted">Formatos soportados: CSV, Excel (.xlsx, .xls)</p>
+                            <input type="file" id="file-input" accept=".csv,.xlsx,.xls" style="display: none;">
+                            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                                <i class="fas fa-folder-open"></i> Seleccionar Archivo
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="file-info" class="mt-3" style="display: none;">
+                        <div class="alert alert-info">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-file"></i>
+                                    <strong id="file-name"></strong>
+                                    <small class="text-muted">(<span id="file-size"></span>)</small>
+                                </div>
+                                <button class="btn btn-sm btn-outline-danger" onclick="clearFile()">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="progress mt-2" style="display: none;" id="upload-progress">
+                                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-cog"></i> Configuración</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tipo de Campaña</label>
+                        <select class="form-select" id="campaign-type">
+                            <option value="seguimiento">Seguimiento</option>
+                            <option value="promocion">Promoción</option>
+                            <option value="reactivacion">Reactivación</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Plantilla WhatsApp</label>
+                        <select class="form-select" id="whatsapp-template">
+                            <option value="saludo_lead">Saludo Lead</option>
+                            <option value="recordatorio_cita">Recordatorio Cita</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Prioridad</label>
+                        <select class="form-select" id="priority">
+                            <option value="1">Alta</option>
+                            <option value="2" selected>Media</option>
+                            <option value="3">Baja</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Programar Envío</label>
+                        <input type="datetime-local" class="form-control" id="scheduled-date">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="validate-duplicates" checked>
+                            <label class="form-check-label" for="validate-duplicates">
+                                Validar duplicados
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="validate-phones" checked>
+                            <label class="form-check-label" for="validate-phones">
+                                Validar teléfonos
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary w-100" onclick="processFile()" disabled id="process-btn">
+                        <i class="fas fa-play"></i> Procesar Archivo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Section -->
+    <div class="card mb-4" id="preview-section" style="display: none;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-eye"></i> Vista Previa</h5>
+            <div>
+                <span class="badge bg-primary" id="total-records">0 registros</span>
+                <span class="badge bg-success" id="valid-records">0 válidos</span>
+                <span class="badge bg-danger" id="invalid-records">0 inválidos</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr id="preview-headers">
+                            <!-- Populated by JavaScript -->
+                        </tr>
+                    </thead>
+                    <tbody id="preview-body">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div>
+                    <small class="text-muted">Mostrando los primeros 10 registros</small>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-warning" onclick="validateData()">
+                        <i class="fas fa-check"></i> Validar Datos
+                    </button>
+                    <button class="btn btn-success" onclick="importData()" id="import-btn" disabled>
+                        <i class="fas fa-upload"></i> Importar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="card" id="results-section" style="display: none;">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-chart-bar"></i> Resultados de la Importación</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="icon text-primary">
+                            <i class="fas fa-file-import"></i>
+                        </div>
+                        <div class="number text-primary" id="result-total">0</div>
+                        <div class="label">Total Procesados</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="icon text-success">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="number text-success" id="result-success">0</div>
+                        <div class="label">Importados</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="icon text-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="number text-warning" id="result-duplicates">0</div>
+                        <div class="label">Duplicados</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <div class="icon text-danger">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="number text-danger" id="result-errors">0</div>
+                        <div class="label">Errores</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-4" id="error-details" style="display: none;">
+                <h6>Detalles de Errores</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Fila</th>
+                                <th>Datos</th>
+                                <th>Error</th>
+                            </tr>
+                        </thead>
+                        <tbody id="error-table">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Processing Modal -->
+<div class="modal fade" id="processingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Procesando Archivo</h5>
+            </div>
+            <div class="modal-body">
+                <div class="text-center">
+                    <div class="loading">
+                        <i class="fas fa-spinner"></i>
+                        <p class="mt-2" id="processing-message">Cargando archivo...</p>
+                    </div>
+                    <div class="progress mt-3">
+                        <div class="progress-bar" role="progressbar" style="width: 0%" id="processing-progress"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Upload History Modal -->
+<div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-history"></i> Historial de Cargas</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Archivo</th>
+                                <th>Registros</th>
+                                <th>Éxito</th>
+                                <th>Errores</th>
+                                <th>Usuario</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentFile = null;
+    let previewData = null;
+    let validationResults = null;
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        setupDragAndDrop();
+        setupFileInput();
+        
+        // Set default scheduled date to now
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        document.getElementById('scheduled-date').value = now.toISOString().slice(0, 16);
+    });
+
+    // Setup drag and drop
+    function setupDragAndDrop() {
+        const uploadArea = document.getElementById('upload-area');
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+    }
+
+    // Setup file input
+    function setupFileInput() {
+        const fileInput = document.getElementById('file-input');
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+    }
+
+    // Handle file selection
+    function handleFile(file) {
+        const allowedTypes = [
+            'text/csv',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        ];
+        
+        if (!allowedTypes.includes(file.type)) {
+            alert('Formato de archivo no soportado. Use CSV o Excel.');
+            return;
+        }
+        
+        if (file.size > 10 * 1024 * 1024) { // 10MB limit
+            alert('El archivo es demasiado grande. Máximo 10MB.');
+            return;
+        }
+        
+        currentFile = file;
+        showFileInfo(file);
+        document.getElementById('process-btn').disabled = false;
+    }
+
+    // Show file information
+    function showFileInfo(file) {
+        document.getElementById('file-name').textContent = file.name;
+        document.getElementById('file-size').textContent = formatFileSize(file.size);
+        document.getElementById('file-info').style.display = 'block';
+    }
+
+    // Clear file
+    function clearFile() {
+        currentFile = null;
+        document.getElementById('file-info').style.display = 'none';
+        document.getElementById('file-input').value = '';
+        document.getElementById('process-btn').disabled = true;
+        document.getElementById('preview-section').style.display = 'none';
+        document.getElementById('results-section').style.display = 'none';
+    }
+
+    // Process file
+    function processFile() {
+        if (!currentFile) return;
+        
+        const modal = new bootstrap.Modal(document.getElementById('processingModal'));
+        modal.show();
+        
+        const formData = new FormData();
+        formData.append('file', currentFile);
+        
+        fetch('/api/process-file', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            modal.hide();
+            if (data.success) {
+                previewData = data.data;
+                showPreview(data.data);
+            } else {
+                alert('Error procesando archivo: ' + data.error);
+            }
+        })
+        .catch(error => {
+            modal.hide();
+            console.error('Error:', error);
+            alert('Error procesando archivo');
+        });
+    }
+
+    // Show preview
+    function showPreview(data) {
+        if (!data.headers || !data.rows) return;
+        
+        // Show headers
+        const headerRow = document.getElementById('preview-headers');
+        headerRow.innerHTML = '';
+        data.headers.forEach(header => {
+            headerRow.innerHTML += `<th>${header}</th>`;
+        });
+        headerRow.innerHTML += '<th>Estado</th>';
+        
+        // Show first 10 rows
+        const tbody = document.getElementById('preview-body');
+        tbody.innerHTML = '';
+        data.rows.slice(0, 10).forEach((row, index) => {
+            const tr = document.createElement('tr');
+            
+            row.forEach(cell => {
+                const td = document.createElement('td');
+                td.textContent = cell;
+                tr.appendChild(td);
+            });
+            
+            // Add status column
+            const statusTd = document.createElement('td');
+            statusTd.innerHTML = '<span class="badge bg-secondary">Pendiente</span>';
+            tr.appendChild(statusTd);
+            
+            tbody.appendChild(tr);
+        });
+        
+        // Update counters
+        document.getElementById('total-records').textContent = `${data.rows.length} registros`;
+        document.getElementById('valid-records').textContent = '0 válidos';
+        document.getElementById('invalid-records').textContent = '0 inválidos';
+        
+        document.getElementById('preview-section').style.display = 'block';
+    }
+
+    // Validate data
+    function validateData() {
+        if (!previewData) return;
+        
+        const modal = new bootstrap.Modal(document.getElementById('processingModal'));
+        document.getElementById('processing-message').textContent = 'Validando datos...';
+        modal.show();
+        
+        fetch('/api/validate-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                data: previewData,
+                validateDuplicates: document.getElementById('validate-duplicates').checked,
+                validatePhones: document.getElementById('validate-phones').checked
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            modal.hide();
+            if (data.success) {
+                validationResults = data.results;
+                updatePreviewWithValidation(data.results);
+                document.getElementById('import-btn').disabled = false;
+            } else {
+                alert('Error validando datos: ' + data.error);
+            }
+        })
+        .catch(error => {
+            modal.hide();
+            console.error('Error:', error);
+            alert('Error validando datos');
+        });
+    }
+
+    // Update preview with validation results
+    function updatePreviewWithValidation(results) {
+        const tbody = document.getElementById('preview-body');
+        const rows = tbody.querySelectorAll('tr');
+        
+        rows.forEach((row, index) => {
+            const statusCell = row.querySelector('td:last-child');
+            const result = results.rows[index];
+            
+            if (result.valid) {
+                statusCell.innerHTML = '<span class="badge bg-success">Válido</span>';
+            } else {
+                statusCell.innerHTML = '<span class="badge bg-danger">Inválido</span>';
+                row.classList.add('table-danger');
+            }
+        });
+        
+        // Update counters
+        document.getElementById('valid-records').textContent = `${results.valid} válidos`;
+        document.getElementById('invalid-records').textContent = `${results.invalid} inválidos`;
+    }
+
+    // Import data
+    function importData() {
+        if (!previewData || !validationResults) return;
+        
+        const modal = new bootstrap.Modal(document.getElementById('processingModal'));
+        document.getElementById('processing-message').textContent = 'Importando contactos...';
+        modal.show();
+        
+        const importConfig = {
+            data: previewData,
+            validation: validationResults,
+            config: {
+                campaignType: document.getElementById('campaign-type').value,
+                whatsappTemplate: document.getElementById('whatsapp-template').value,
+                priority: parseInt(document.getElementById('priority').value),
+                scheduledDate: document.getElementById('scheduled-date').value
+            }
+        };
+        
+        fetch('/api/import-contacts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(importConfig)
+        })
+        .then(response => response.json())
+        .then(data => {
+            modal.hide();
+            if (data.success) {
+                showResults(data.results);
+                clearFile();
+            } else {
+                alert('Error importando contactos: ' + data.error);
+            }
+        })
+        .catch(error => {
+            modal.hide();
+            console.error('Error:', error);
+            alert('Error importando contactos');
+        });
+    }
+
+    // Show import results
+    function showResults(results) {
+        document.getElementById('result-total').textContent = results.total;
+        document.getElementById('result-success').textContent = results.success;
+        document.getElementById('result-duplicates').textContent = results.duplicates;
+        document.getElementById('result-errors').textContent = results.errors;
+        
+        if (results.errorDetails && results.errorDetails.length > 0) {
+            const errorTable = document.getElementById('error-table');
+            errorTable.innerHTML = '';
+            
+            results.errorDetails.forEach(error => {
+                const row = `
+                    <tr>
+                        <td>${error.row}</td>
+                        <td>${error.data}</td>
+                        <td>${error.error}</td>
+                    </tr>
+                `;
+                errorTable.innerHTML += row;
+            });
+            
+            document.getElementById('error-details').style.display = 'block';
+        }
+        
+        document.getElementById('results-section').style.display = 'block';
+    }
+
+    // Download template
+    function downloadTemplate() {
+        window.open('/api/download-template', '_blank');
+    }
+
+    // Show upload history
+    function showUploadHistory() {
+        fetch('/api/upload-history')
+            .then(response => response.json())
+            .then(data => {
+                const historyTable = document.getElementById('history-table');
+                historyTable.innerHTML = '';
+                
+                data.history.forEach(item => {
+                    const row = `
+                        <tr>
+                            <td>${formatDate(item.date)}</td>
+                            <td>${item.filename}</td>
+                            <td>${item.total_records}</td>
+                            <td>${item.success_count}</td>
+                            <td>${item.error_count}</td>
+                            <td>${item.user}</td>
+                        </tr>
+                    `;
+                    historyTable.innerHTML += row;
+                });
+                
+                new bootstrap.Modal(document.getElementById('historyModal')).show();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error cargando historial');
+            });
+    }
+
+    // Helper functions
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatDate(dateString) {
+        return new Date(dateString).toLocaleString('es-ES');
+    }
+
+    // CSS for drag and drop
+    const style = document.createElement('style');
+    style.textContent = `
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #e7f3ff;
+        }
+    `;
+    document.head.appendChild(style);
+</script>
+{% endblock %}

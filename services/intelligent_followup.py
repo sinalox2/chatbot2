@@ -288,17 +288,32 @@ class IntelligentFollowup:
     
     def _generar_mensaje_personalizado(self, lead: Lead, tono: str, intento: int) -> str:
         """Genera un mensaje personalizado según el contexto"""
-        templates = self.templates_mensajes.get(tono, self.templates_mensajes['informativo'])
+        templates = self.templates_mensajes.get(tono, self.templates_mensajes.get('informativo', []))
+        
+        # Validar que templates no esté vacío
+        if not templates:
+            templates = [
+                "Hola {nombre}, espero estés bien 😊 ¿Tienes alguna duda sobre los autos?",
+                "¡{nombre}! Por si te sirve, aquí tienes la info actualizada de modelos 📋"
+            ]
         
         # Seleccionar template (rotar para evitar repetición)
         template = templates[intento % len(templates)]
         
+        # Validar que template no sea None
+        if not template:
+            template = "Hola {nombre}, ¿cómo vas con la decisión del {modelo}?"
+        
         # Personalizar con información del lead
-        mensaje = template.format(
-            nombre=lead.nombre,
-            modelo=lead.info_prospecto.modelo_interes or 'auto',
-            enganche=f"${lead.info_prospecto.monto_enganche:,.0f}" if lead.info_prospecto.monto_enganche else "con facilidades"
-        )
+        try:
+            mensaje = template.format(
+                nombre=lead.nombre or 'amigo',
+                modelo=lead.info_prospecto.modelo_interes or 'auto',
+                enganche=f"${lead.info_prospecto.monto_enganche:,.0f}" if lead.info_prospecto.monto_enganche else "con facilidades"
+            )
+        except (AttributeError, KeyError) as e:
+            print(f"❌ Error formateando mensaje: {e}")
+            mensaje = f"Hola {lead.nombre or 'amigo'}, ¿cómo puedo ayudarte con tu auto?"
         
         return mensaje
     

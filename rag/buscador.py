@@ -1,3 +1,4 @@
+import os
 from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.docstore.document import Document
@@ -5,7 +6,9 @@ from langchain.docstore.document import Document
 # Cargar la base vectorial previamente guardada
 def cargar_vectorstore():
     embeddings = OpenAIEmbeddings()
-    db = FAISS.load_local("rag/vector_db_sicrea", embeddings, allow_dangerous_deserialization=True)
+    # Path is relative to the main project directory
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vector_db_sicrea")
+    db = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
     return db
 
 # Recuperar contexto relevante dado un mensaje de usuario

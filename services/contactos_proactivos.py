@@ -18,12 +18,38 @@ class ContactosProactivosService:
     def obtener_contactos_pendientes(self, limite: int = 10) -> List[Dict]:
         """Obtiene contactos pendientes para envío"""
         try:
-            # Usar la función SQL creada
-            response = supabase.rpc('obtener_contactos_pendientes', {'limite': limite}).execute()
+            # Usar query directo que incluye template_whatsapp 
+            print(f"📊 Obteniendo contactos pendientes con query directo...")
+            response = supabase.table('contactos_proactivos')\
+                .select('id, telefono, nombre, contexto, tipo_campana, mensaje_personalizado, observaciones, created_at, template_whatsapp')\
+                .eq('estado', 'pendiente')\
+                .lte('fecha_programada', datetime.now().isoformat())\
+                .order('created_at', desc=False)\
+                .limit(limite)\
+                .execute()
             return response.data if response.data else []
         except Exception as e:
             print(f"❌ Error obteniendo contactos pendientes: {e}")
             return []
+    
+    def _generar_parametros_template(self, template_name: str, contacto: Dict) -> Dict:
+        """Genera parámetros específicos para cada template"""
+        nombre = contacto.get('nombre', 'Cliente')
+        
+        if template_name == "saludo_lead":
+            return {'nombre': nombre}
+            
+        elif template_name == "recordatorio_cita":
+            return {
+                'nombre': nombre,
+                'fecha': contacto.get('fecha_cita', '10 de julio'),
+                'hora': contacto.get('hora_cita', '4:00 PM'),
+                'direccion': contacto.get('direccion', 'Av. Revolución 123, Nissan Tijuana')
+            }
+            
+        else:
+            # Fallback genérico
+            return {'nombre': nombre}
     
     def generar_mensaje_personalizado(self, contacto: Dict) -> str:
         """Genera mensaje personalizado basado en el contexto del contacto"""
@@ -38,11 +64,12 @@ class ContactosProactivosService:
         
         # Generar mensaje según tipo de campaña y contexto
         if tipo_campana == 'seguimiento':
-            if 'sentra' in contexto.lower():
+            contexto_lower = (contexto or '').lower()
+            if contexto_lower and 'sentra' in contexto_lower:
                 return f"¡Hola {nombre}! 😁 ¿Qué tal? Oye, ¿seguiste pensando en el Sentra? Tenemos nuevas promos que te pueden convenir..."
-            elif 'versa' in contexto.lower():
+            elif contexto_lower and 'versa' in contexto_lower:
                 return f"¡Ey {nombre}! ¿Cómo vas? 😁 ¿Ya te decidiste por el Versa o aún tienes dudas? Platícame..."
-            elif 'buró' in contexto.lower() or 'buro' in contexto.lower():
+            elif contexto_lower and ('buró' in contexto_lower or 'buro' in contexto_lower):
                 return f"Hola {nombre} 😁 Recordé que platicamos del plan Sí Fácil... ¿ya tuviste oportunidad de pensarlo?"
             else:
                 return f"¡Hola {nombre}! 😁 ¿Qué tal todo? Quería saber si seguías interesado en algún Nissan..."
@@ -57,36 +84,21 @@ class ContactosProactivosService:
             return f"¡Hola {nombre}! 😁 César de Nissan por aquí, ¿cómo vas? ¿Seguís buscando auto?"
     
     def enviar_mensaje_whatsapp(self, telefono: str, mensaje: str) -> bool:
-        """Envía mensaje proactivo por WhatsApp"""
+        """Envía mensaje proactivo por WhatsApp usando el servicio centralizado"""
         try:
-            token = os.getenv("WHATSAPP_TOKEN")
-            phone_number_id = os.getenv("PHONE_NUMBER_ID")
+            # Usar el servicio centralizado de WhatsApp con auto-reload de token
+            from services.whatsapp_service import whatsapp_service
             
-            if not token or not phone_number_id:
-                print("❌ Faltan variables de WhatsApp para envío proactivo")
-                return False
-                
-            url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+            resultado = whatsapp_service.enviar_mensaje(telefono, mensaje)
             
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": telefono,
-                "type": "text",
-                "text": {"body": mensaje}
-            }
-            
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-            
-            if response.ok:
+            if resultado.get('success'):
                 print(f"✅ Mensaje proactivo enviado a {telefono}")
+                if resultado.get('token_renovado'):
+                    print("🔄 Token fue renovado automáticamente durante el envío")
                 return True
             else:
-                print(f"❌ Error enviando mensaje proactivo: {response.status_code} - {response.text}")
+                error_msg = resultado.get('error', 'Error desconocido')
+                print(f"❌ Error enviando mensaje proactivo: {error_msg}")
                 return False
                 
         except Exception as e:
@@ -94,77 +106,38 @@ class ContactosProactivosService:
             return False
     
     def enviar_plantilla_whatsapp(self, telefono: str, template_name: str, contacto: Dict) -> bool:
-        """Envía plantilla de WhatsApp Business con fallback a mensaje personalizado"""
+        """Envía plantilla de WhatsApp Business usando el servicio centralizado"""
         try:
-            token = os.getenv("WHATSAPP_TOKEN")
-            phone_number_id = os.getenv("PHONE_NUMBER_ID")
+            # Usar el servicio centralizado de WhatsApp
+            from services.whatsapp_service import whatsapp_service
             
-            if not token or not phone_number_id:
-                print("❌ Faltan variables de WhatsApp para envío de plantilla")
-                print("📱 FALLBACK: Enviando mensaje personalizado")
-                return self.enviar_mensaje_whatsapp(telefono, self.generar_mensaje_personalizado(contacto))
-                
-            url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+            # Preparar parámetros según el template
+            parameters = self._generar_parametros_template(template_name, contacto)
             
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": telefono,
-                "type": "template",
-                "template": {
-                    "name": template_name,
-                    "language": {"code": "es"}
-                }
-            }
+            # Enviar template usando el servicio centralizado
+            resultado = whatsapp_service.enviar_mensaje_template(
+                telefono=telefono,
+                template_name=template_name,
+                parameters=parameters
+            )
             
-            # Agregar parámetros si la plantilla los requiere
-            if template_name == "saludo_lead":
-                # Plantilla de saludo puede incluir nombre del cliente
-                payload["template"]["components"] = [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": contacto.get('nombre', '')}
-                        ]
-                    }
-                ]
-            elif template_name == "recordatorio_cita":
-                # Plantilla de recordatorio puede incluir fecha/hora
-                payload["template"]["components"] = [
-                    {
-                        "type": "body", 
-                        "parameters": [
-                            {"type": "text", "text": contacto.get('nombre', '')},
-                            {"type": "text", "text": "próximamente"}  # Aquí iría fecha real
-                        ]
-                    }
-                ]
-            
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
-            
-            if response.ok:
+            if resultado.get('success'):
                 print(f"✅ Plantilla '{template_name}' enviada a {telefono}")
                 return True
             else:
-                error_text = response.text
-                print(f"❌ Error enviando plantilla: {response.status_code} - {error_text}")
+                error_msg = resultado.get('error', 'Error desconocido')
+                print(f"❌ Error enviando plantilla: {error_msg}")
                 
-                # FALLBACK: Si la plantilla no existe, enviar mensaje personalizado
-                if "does not exist" in error_text.lower() or "132001" in error_text:
-                    print(f"📱 FALLBACK: Plantilla '{template_name}' no existe, enviando mensaje personalizado")
-                    mensaje_fallback = self.generar_mensaje_para_plantilla(template_name, contacto)
-                    return self.enviar_mensaje_whatsapp(telefono, mensaje_fallback)
-                
-                return False
+                # FALLBACK: Si falla la plantilla, enviar mensaje personalizado
+                print(f"📱 FALLBACK: Plantilla '{template_name}' no existe, enviando mensaje personalizado")
+                mensaje_fallback = self.generar_mensaje_para_plantilla(template_name, contacto)
+                return self.enviar_mensaje_whatsapp(telefono, mensaje_fallback)
                 
         except Exception as e:
-            print(f"❌ Error en envío de plantilla: {e}")
-            print("📱 FALLBACK: Enviando mensaje personalizado")
-            return self.enviar_mensaje_whatsapp(telefono, self.generar_mensaje_personalizado(contacto))
+            print(f"❌ Error enviando plantilla: {e}")
+            # FALLBACK: En caso de error, enviar mensaje personalizado
+            mensaje_fallback = self.generar_mensaje_para_plantilla(template_name, contacto)
+            return self.enviar_mensaje_whatsapp(telefono, mensaje_fallback)
     
     def generar_mensaje_para_plantilla(self, template_name: str, contacto: Dict) -> str:
         """Genera mensaje específico simulando el contenido de una plantilla"""
@@ -228,28 +201,69 @@ class ContactosProactivosService:
                             template_whatsapp = template_part.strip()
                         print(f"📱 Template encontrado en observaciones: {template_whatsapp}")
                 
+                # Validar que el template no esté vacío
+                if template_whatsapp and template_whatsapp.strip() == '':
+                    template_whatsapp = None
+                
                 # Verificar si es primer contacto o contacto existente
-                observaciones = contacto.get('observaciones', '')
-                es_primer_contacto = 'Primer contacto' in observaciones
-                es_contacto_existente = 'Contacto existente' in observaciones
+                observaciones = contacto.get('observaciones', '') or ''
+                es_primer_contacto = observaciones and 'Primer contacto' in observaciones
+                es_contacto_existente = observaciones and 'Contacto existente' in observaciones
                 
                 # Lógica de envío según tipo de contacto
                 if es_primer_contacto and template_whatsapp:
-                    # PRIMER CONTACTO: Usar plantilla obligatoriamente (políticas Meta)
-                    print(f"📱 PRIMER CONTACTO - Enviando plantilla '{template_whatsapp}' a {contacto['nombre']} ({telefono})")
-                    
-                    if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
-                        self.marcar_contacto_enviado(contacto['id'])
-                        if supabase:
-                            supabase.table('historial_conversaciones').insert({
-                                'telefono': telefono,
-                                'mensaje': f"[PRIMER CONTACTO] Contexto: {contacto['contexto'][:100]}...",
-                                'respuesta': f"Plantilla enviada: {template_whatsapp}",
-                                'timestamp': datetime.now().isoformat()
-                            }).execute()
-                    else:
-                        print(f"❌ Error enviando plantilla a {telefono}")
-                        self.marcar_contacto_error(contacto['id'], "Error enviando plantilla")
+                    # --- INICIO: NUEVA INTEGRACIÓN CON CHATWOOT ---
+                    try:
+                        from chatwoot_api import buscar_contacto, crear_contacto, crear_conversacion, crear_mensaje_privado
+                        
+                        print(f"🤖 Iniciando flujo de Chatwoot para {telefono}...")
+                        
+                        # 1. Buscar o crear contacto en Chatwoot
+                        chatwoot_contact = buscar_contacto(telefono)
+                        if not chatwoot_contact:
+                            print(f"📞 Contacto no encontrado en Chatwoot, creando uno nuevo...")
+                            chatwoot_contact = crear_contacto(contacto.get('nombre', 'Contacto Proactivo'), telefono)
+                        
+                        if not chatwoot_contact or not chatwoot_contact.get('id'):
+                            raise Exception("No se pudo crear o encontrar el contacto en Chatwoot.")
+
+                        contact_id = chatwoot_contact.get('id')
+                        print(f"✅ Contacto ID en Chatwoot: {contact_id}")
+
+                        # 2. Crear conversación en Chatwoot
+                        conversacion = crear_conversacion(contact_id)
+                        conversation_id = conversacion.get('id')
+                        if not conversation_id:
+                            raise Exception("No se pudo crear la conversación en Chatwoot.")
+                        
+                        print(f"💬 Conversación ID en Chatwoot: {conversation_id}")
+
+                        # 3. Enviar plantilla de WhatsApp (lógica existente)
+                        print(f"📱 PRIMER CONTACTO - Enviando plantilla '{template_whatsapp}' a {contacto['nombre']} ({telefono})")
+                        if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
+                            self.marcar_contacto_enviado(contacto['id'])
+                            
+                            # 4. (Mejora) Agregar nota privada a la conversación de Chatwoot
+                            nota_privada = f"[Lead Proactivo] Contactado en frío con plantilla '{template_whatsapp}'.\nContexto: {contacto.get('contexto', 'Sin contexto')}"
+                            crear_mensaje_privado(conversation_id, nota_privada)
+                            print(f"📝 Nota privada agregada a la conversación {conversation_id}")
+                            
+                            # Guardar en historial local (opcional, redundante si se usa Chatwoot)
+                            if supabase:
+                                supabase.table('historial_conversaciones').insert({
+                                    'telefono': telefono,
+                                    'mensaje': f"[PRIMER CONTACTO CHATWOOT] Contexto: {(contacto.get('contexto') or '')[:100]}...",
+                                    'respuesta': f"Plantilla enviada: {template_whatsapp}",
+                                    'timestamp': datetime.now().isoformat()
+                                }).execute()
+                        else:
+                            self.marcar_contacto_error(contacto['id'], "Error enviando plantilla de WhatsApp")
+
+                    except Exception as e:
+                        error_msg = f"Error en el flujo de Chatwoot: {e}"
+                        print(f"❌ {error_msg}")
+                        self.marcar_contacto_error(contacto['id'], error_msg)
+                    # --- FIN: NUEVA INTEGRACIÓN CON CHATWOOT ---
                         
                 elif es_contacto_existente:
                     # CONTACTO EXISTENTE: Usar mensaje personalizado
@@ -259,9 +273,10 @@ class ContactosProactivosService:
                     if self.enviar_mensaje_whatsapp(telefono, mensaje):
                         self.marcar_contacto_enviado(contacto['id'])
                         if supabase:
+                            contexto_text = (contacto.get('contexto') or '')[:100]
                             supabase.table('historial_conversaciones').insert({
                                 'telefono': telefono,
-                                'mensaje': f"[CONTACTO EXISTENTE] Contexto: {contacto['contexto'][:100]}...",
+                                'mensaje': f"[CONTACTO EXISTENTE] Contexto: {contexto_text}...",
                                 'respuesta': mensaje,
                                 'timestamp': datetime.now().isoformat()
                             }).execute()
@@ -276,9 +291,10 @@ class ContactosProactivosService:
                     if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
                         self.marcar_contacto_enviado(contacto['id'])
                         if supabase:
+                            contexto_text = (contacto.get('contexto') or '')[:100]
                             supabase.table('historial_conversaciones').insert({
                                 'telefono': telefono,
-                                'mensaje': f"[CONTACTO PROACTIVO] Contexto: {contacto['contexto'][:100]}...",
+                                'mensaje': f"[CONTACTO PROACTIVO] Contexto: {contexto_text}...",
                                 'respuesta': f"Plantilla enviada: {template_whatsapp}",
                                 'timestamp': datetime.now().isoformat()
                             }).execute()
@@ -293,18 +309,16 @@ class ContactosProactivosService:
                     if self.enviar_mensaje_whatsapp(telefono, mensaje):
                         self.marcar_contacto_enviado(contacto['id'])
                         if supabase:
+                            contexto_text = (contacto.get('contexto') or '')[:100]
                             supabase.table('historial_conversaciones').insert({
                                 'telefono': telefono,
-                                'mensaje': f"[CONTACTO PROACTIVO] Contexto: {contacto['contexto'][:100]}...",
+                                'mensaje': f"[CONTACTO PROACTIVO] Contexto: {contexto_text}...",
                                 'respuesta': mensaje,
                                 'timestamp': datetime.now().isoformat()
                             }).execute()
                     else:
-                    # Marcar como error
-                        supabase.table('contactos_proactivos').update({
-                        'estado': 'error',
-                        'updated_at': datetime.now().isoformat()
-                    }).eq('id', contacto['id']).execute()
+                        print(f"❌ Error enviando mensaje personalizado a {telefono}")
+                        self.marcar_contacto_error(contacto['id'], "Error enviando mensaje personalizado")
                 
                 # Esperar entre envíos para no saturar
                 time.sleep(2)
@@ -329,7 +343,8 @@ class ContactosProactivosService:
                 'prioridad': prioridad,
                 'fecha_programada': (fecha_programada or datetime.now()).isoformat(),
                 'mensaje_personalizado': mensaje_personalizado,
-                'observaciones': observaciones
+                'observaciones': observaciones,
+                'estado': 'pendiente'  # Establecer estado inicial
             }
             
             # Agregar template_whatsapp solo si se proporciona y la columna existe

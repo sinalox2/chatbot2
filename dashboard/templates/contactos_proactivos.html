@@ -1,0 +1,721 @@
+{% extends "base.html" %}
+
+{% block title %}Contactos Proactivos - Nissan CRM{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="fas fa-users"></i> Contactos Proactivos</h2>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addContactModal">
+                <i class="fas fa-plus"></i> Nuevo Contacto
+            </button>
+            <button class="btn btn-success" onclick="processAllPending()">
+                <i class="fas fa-paper-plane"></i> Enviar Pendientes
+            </button>
+            <button class="btn btn-info" onclick="refreshContacts()">
+                <i class="fas fa-sync-alt"></i> Actualizar
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card">
+                <div class="icon text-warning">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="number text-warning" id="pending-count">{{ stats.pending_count or 0 }}</div>
+                <div class="label">Pendientes</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card">
+                <div class="icon text-success">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="number text-success" id="sent-count">{{ stats.sent_count or 0 }}</div>
+                <div class="label">Enviados</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card">
+                <div class="icon text-info">
+                    <i class="fas fa-reply"></i>
+                </div>
+                <div class="number text-info" id="responded-count">{{ stats.responded_count or 0 }}</div>
+                <div class="label">Respondidos</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card">
+                <div class="icon text-danger">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="number text-danger" id="error-count">{{ stats.error_count or 0 }}</div>
+                <div class="label">Errores</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label">Estado</label>
+                    <select class="form-select" id="filter-status" onchange="filterContacts()">
+                        <option value="">Todos</option>
+                        <option value="pendiente">Pendientes</option>
+                        <option value="enviado">Enviados</option>
+                        <option value="respondido">Respondidos</option>
+                        <option value="error">Errores</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Tipo de Campaña</label>
+                    <select class="form-select" id="filter-campaign" onchange="filterContacts()">
+                        <option value="">Todas</option>
+                        <option value="seguimiento">Seguimiento</option>
+                        <option value="promocion">Promoción</option>
+                        <option value="reactivacion">Reactivación</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Plantilla</label>
+                    <select class="form-select" id="filter-template" onchange="filterContacts()">
+                        <option value="">Todas</option>
+                        <option value="saludo_lead">Saludo Lead</option>
+                        <option value="recordatorio_cita">Recordatorio Cita</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Buscar</label>
+                    <input type="text" class="form-control" id="search-input" placeholder="Nombre o teléfono..." onkeyup="filterContacts()">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contacts Table -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0"><i class="fas fa-list"></i> Lista de Contactos</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Teléfono</th>
+                            <th>Campaña</th>
+                            <th>Plantilla</th>
+                            <th>Estado</th>
+                            <th>Programado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="contacts-table">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination -->
+            <nav aria-label="Paginación">
+                <ul class="pagination justify-content-center mt-3" id="pagination">
+                    <!-- Populated by JavaScript -->
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- Add Contact Modal -->
+<div class="modal fade" id="addContactModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus"></i> Nuevo Contacto Proactivo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addContactForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Nombre *</label>
+                                <input type="text" class="form-control" name="nombre" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Teléfono *</label>
+                                <input type="tel" class="form-control" name="telefono" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Tipo de Campaña</label>
+                                <select class="form-select" name="tipo_campana">
+                                    <option value="seguimiento">Seguimiento</option>
+                                    <option value="promocion">Promoción</option>
+                                    <option value="reactivacion">Reactivación</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Plantilla WhatsApp</label>
+                                <select class="form-select" name="template_whatsapp">
+                                    <option value="saludo_lead">Saludo Lead</option>
+                                    <option value="recordatorio_cita">Recordatorio Cita</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="mb-3">
+                                <label class="form-label">Tipo de Contacto</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="tipo_contacto" id="primer_contacto" value="primer_contacto" checked onchange="toggleContactType()">
+                                    <label class="form-check-label" for="primer_contacto">
+                                        <i class="fas fa-user-plus text-success"></i> <strong>Contacto Nuevo</strong> - Usar plantilla de WhatsApp
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="tipo_contacto" id="contacto_existente" value="contacto_existente" onchange="toggleContactType()">
+                                    <label class="form-check-label" for="contacto_existente">
+                                        <i class="fas fa-user text-info"></i> <strong>Contacto Existente</strong> - Usar mensaje personalizado
+                                    </label>
+                                </div>
+                                <small class="form-text text-muted">
+                                    📱 <strong>Contacto Nuevo:</strong> Se enviará la plantilla seleccionada<br>
+                                    💬 <strong>Contacto Existente:</strong> Se enviará el mensaje personalizado o uno automático
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Prioridad</label>
+                                <select class="form-select" name="prioridad">
+                                    <option value="1">Alta</option>
+                                    <option value="2" selected>Media</option>
+                                    <option value="3">Baja</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Fecha Programada</label>
+                                <input type="datetime-local" class="form-control" name="fecha_programada">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Contexto</label>
+                        <textarea class="form-control" name="contexto" rows="3" placeholder="Información adicional sobre el contacto..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mensaje Personalizado</label>
+                        <textarea class="form-control" name="mensaje_personalizado" rows="3" placeholder="Mensaje personalizado (opcional)..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Observaciones</label>
+                        <textarea class="form-control" name="observaciones" rows="2" placeholder="Observaciones adicionales..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveContact()">Guardar Contacto</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View Contact Modal -->
+<div class="modal fade" id="viewContactModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-eye"></i> Detalles del Contacto</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="contact-details">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary" onclick="editContact()">Editar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="loading">
+                    <i class="fas fa-spinner"></i>
+                    <p class="mt-2">Procesando...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentPage = 1;
+    let totalPages = 1;
+    let allContacts = [];
+    let filteredContacts = [];
+    const contactsPerPage = 10;
+
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🚀 Iniciando página de contactos proactivos...');
+        loadContacts();
+        updateStats();
+    });
+
+    // Función de debug para testing manual
+    window.debugContacts = function() {
+        console.log('🔍 DEBUG INFO:');
+        console.log('- allContacts:', allContacts);
+        console.log('- filteredContacts:', filteredContacts);
+        console.log('- currentPage:', currentPage);
+        console.log('- totalPages:', totalPages);
+        console.log('- contactsPerPage:', contactsPerPage);
+        
+        // Test API directly
+        fetch('/api/contactos-proactivos')
+            .then(r => r.json())
+            .then(d => console.log('📡 API Response:', d))
+            .catch(e => console.error('❌ API Error:', e));
+        
+        // Debug table structure
+        fetch('/api/contactos-proactivos/debug')
+            .then(r => r.json())
+            .then(d => {
+                console.log('🔍 Estructura de tabla:', d);
+                console.log('📋 Columnas disponibles:', d.columns);
+                console.log('📄 Registro de ejemplo:', d.sample_record);
+            })
+            .catch(e => console.error('❌ Debug Error:', e));
+    };
+
+    // Load contacts from server
+    function loadContacts() {
+        console.log('🔄 Cargando contactos...');
+        fetch('/api/contactos-proactivos')
+            .then(response => {
+                console.log('📡 Respuesta recibida:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('📊 Datos recibidos:', data);
+                if (data.success) {
+                    allContacts = data.contacts || [];
+                    filteredContacts = allContacts;
+                    console.log('✅ Contactos cargados:', allContacts.length);
+                    displayContacts();
+                    updatePagination();
+                } else {
+                    console.error('❌ Error en respuesta:', data.error);
+                    alert('Error al cargar contactos: ' + (data.error || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                console.error('❌ Error loading contacts:', error);
+                alert('Error al cargar contactos: ' + error.message);
+            });
+    }
+
+    // Display contacts in table
+    function displayContacts() {
+        const startIndex = (currentPage - 1) * contactsPerPage;
+        const endIndex = startIndex + contactsPerPage;
+        const contactsToShow = filteredContacts.slice(startIndex, endIndex);
+
+        const tbody = document.getElementById('contacts-table');
+        tbody.innerHTML = '';
+
+        console.log(`📋 Mostrando ${contactsToShow.length} contactos de ${filteredContacts.length} total`);
+
+        if (contactsToShow.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="text-center py-4">
+                        <i class="fas fa-inbox fa-2x text-muted mb-2"></i>
+                        <p class="text-muted mb-0">No hay contactos para mostrar</p>
+                        <small class="text-muted">Agrega un nuevo contacto usando el botón "Nuevo Contacto"</small>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        contactsToShow.forEach(contact => {
+            const row = `
+                <tr>
+                    <td>${contact.nombre || 'Sin nombre'}</td>
+                    <td>${contact.telefono || 'Sin teléfono'}</td>
+                    <td><span class="badge bg-info">${contact.tipo_campana || 'seguimiento'}</span></td>
+                    <td><span class="badge bg-secondary">${contact.template_whatsapp || 'N/A'}</span></td>
+                    <td><span class="status-badge status-${contact.estado || 'pendiente'}">${getStatusText(contact.estado || 'pendiente')}</span></td>
+                    <td>${formatDate(contact.fecha_programada)}</td>
+                    <td>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="viewContact(${contact.id})">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-success" onclick="sendContact(${contact.id})" ${contact.estado !== 'pendiente' ? 'disabled' : ''}>
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteContact(${contact.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+
+    // Update pagination
+    function updatePagination() {
+        totalPages = Math.ceil(filteredContacts.length / contactsPerPage);
+        const pagination = document.getElementById('pagination');
+        pagination.innerHTML = '';
+
+        // Previous button
+        pagination.innerHTML += `
+            <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Anterior</a>
+            </li>
+        `;
+
+        // Page numbers
+        for (let i = 1; i <= totalPages; i++) {
+            pagination.innerHTML += `
+                <li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
+                </li>
+            `;
+        }
+
+        // Next button
+        pagination.innerHTML += `
+            <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Siguiente</a>
+            </li>
+        `;
+    }
+
+    // Change page
+    function changePage(page) {
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        displayContacts();
+        updatePagination();
+    }
+
+    // Filter contacts
+    function filterContacts() {
+        const statusFilter = document.getElementById('filter-status').value;
+        const campaignFilter = document.getElementById('filter-campaign').value;
+        const templateFilter = document.getElementById('filter-template').value;
+        const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+        filteredContacts = allContacts.filter(contact => {
+            const matchesStatus = !statusFilter || contact.estado === statusFilter;
+            const matchesCampaign = !campaignFilter || contact.tipo_campana === campaignFilter;
+            const matchesTemplate = !templateFilter || contact.template_whatsapp === templateFilter;
+            const matchesSearch = !searchTerm || 
+                contact.nombre.toLowerCase().includes(searchTerm) ||
+                contact.telefono.includes(searchTerm);
+
+            return matchesStatus && matchesCampaign && matchesTemplate && matchesSearch;
+        });
+
+        currentPage = 1;
+        displayContacts();
+        updatePagination();
+    }
+
+    // Toggle contact type fields
+    function toggleContactType() {
+        const tipoContacto = document.querySelector('input[name="tipo_contacto"]:checked').value;
+        const templateSelect = document.querySelector('select[name="template_whatsapp"]');
+        const mensajePersonalizado = document.querySelector('textarea[name="mensaje_personalizado"]');
+        
+        if (tipoContacto === 'primer_contacto') {
+            // Contacto nuevo: habilitar plantilla, opcional mensaje personalizado
+            templateSelect.required = true;
+            templateSelect.parentElement.style.opacity = '1';
+            mensajePersonalizado.placeholder = 'Mensaje personalizado (opcional)...';
+        } else {
+            // Contacto existente: opcional plantilla, requerido mensaje personalizado  
+            templateSelect.required = false;
+            templateSelect.parentElement.style.opacity = '0.7';
+            mensajePersonalizado.placeholder = 'Mensaje personalizado (requerido para contactos existentes)...';
+        }
+    }
+
+    // Save new contact
+    function saveContact() {
+        const form = document.getElementById('addContactForm');
+        const formData = new FormData(form);
+        
+        // Obtener tipo de contacto seleccionado
+        const tipoContacto = formData.get('tipo_contacto');
+        
+        // Construir observaciones según el tipo de contacto
+        let observaciones = formData.get('observaciones') || '';
+        if (tipoContacto === 'primer_contacto') {
+            observaciones = `Primer contacto${observaciones ? ' | ' + observaciones : ''}`;
+        } else {
+            observaciones = `Contacto existente${observaciones ? ' | ' + observaciones : ''}`;
+        }
+        
+        const contactData = {
+            nombre: formData.get('nombre'),
+            telefono: formData.get('telefono'),
+            tipo_campana: formData.get('tipo_campana'),
+            template_whatsapp: formData.get('template_whatsapp'),
+            prioridad: parseInt(formData.get('prioridad')),
+            fecha_programada: formData.get('fecha_programada'),
+            contexto: formData.get('contexto'),
+            mensaje_personalizado: formData.get('mensaje_personalizado'),
+            observaciones: observaciones
+        };
+
+        console.log('💾 Guardando contacto:', contactData);
+
+        fetch('/api/contactos-proactivos', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(contactData)
+        })
+        .then(response => {
+            console.log('📡 Respuesta POST:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('📊 Resultado POST:', data);
+            if (data.success) {
+                alert('Contacto agregado exitosamente');
+                bootstrap.Modal.getInstance(document.getElementById('addContactModal')).hide();
+                form.reset();
+                
+                // Recargar contactos después de un pequeño delay para asegurar que la BD se actualice
+                setTimeout(() => {
+                    console.log('🔄 Recargando lista después de agregar...');
+                    loadContacts();
+                    updateStats();
+                }, 500);
+            } else {
+                console.error('❌ Error en POST:', data.error);
+                alert('Error al agregar contacto: ' + (data.error || 'Error desconocido'));
+            }
+        })
+        .catch(error => {
+            console.error('❌ Error guardando contacto:', error);
+            alert('Error al agregar contacto: ' + error.message);
+        });
+    }
+
+    // View contact details
+    function viewContact(contactId) {
+        const contact = allContacts.find(c => c.id === contactId);
+        if (!contact) return;
+
+        const details = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Información Básica</h6>
+                    <p><strong>Nombre:</strong> ${contact.nombre}</p>
+                    <p><strong>Teléfono:</strong> ${contact.telefono}</p>
+                    <p><strong>Estado:</strong> <span class="status-badge status-${contact.estado}">${getStatusText(contact.estado)}</span></p>
+                </div>
+                <div class="col-md-6">
+                    <h6>Campaña</h6>
+                    <p><strong>Tipo:</strong> ${contact.tipo_campana}</p>
+                    <p><strong>Plantilla:</strong> ${contact.template_whatsapp || 'N/A'}</p>
+                    <p><strong>Prioridad:</strong> ${getPriorityText(contact.prioridad)}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <h6>Contexto</h6>
+                    <p>${contact.contexto || 'No especificado'}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <h6>Mensaje Personalizado</h6>
+                    <p>${contact.mensaje_personalizado || 'No especificado'}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <h6>Observaciones</h6>
+                    <p>${contact.observaciones || 'No especificado'}</p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Fecha Programada:</strong> ${formatDate(contact.fecha_programada)}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Fecha Creación:</strong> ${formatDate(contact.fecha_creacion)}</p>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('contact-details').innerHTML = details;
+        new bootstrap.Modal(document.getElementById('viewContactModal')).show();
+    }
+
+    // Send individual contact
+    function sendContact(contactId) {
+        if (!confirm('¿Enviar este contacto ahora?')) return;
+
+        const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        modal.show();
+
+        fetch(`/api/contactos-proactivos/${contactId}/send`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            modal.hide();
+            if (data.success) {
+                alert('Contacto enviado exitosamente');
+                loadContacts();
+                updateStats();
+            } else {
+                alert('Error al enviar contacto: ' + data.error);
+            }
+        })
+        .catch(error => {
+            modal.hide();
+            console.error('Error:', error);
+            alert('Error al enviar contacto');
+        });
+    }
+
+    // Delete contact
+    function deleteContact(contactId) {
+        if (!confirm('¿Estás seguro de eliminar este contacto?')) return;
+
+        fetch(`/api/contactos-proactivos/${contactId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Contacto eliminado exitosamente');
+                loadContacts();
+                updateStats();
+            } else {
+                alert('Error al eliminar contacto: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error al eliminar contacto');
+        });
+    }
+
+    // Process all pending contacts
+    function processAllPending() {
+        if (!confirm('¿Enviar todos los contactos pendientes?')) return;
+
+        const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        modal.show();
+
+        fetch('/api/process-pending-contacts', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            modal.hide();
+            alert(`Proceso completado: ${data.sent} enviados, ${data.errors} errores`);
+            loadContacts();
+            updateStats();
+        })
+        .catch(error => {
+            modal.hide();
+            console.error('Error:', error);
+            alert('Error al procesar contactos');
+        });
+    }
+
+    // Refresh contacts
+    function refreshContacts() {
+        loadContacts();
+        updateStats();
+    }
+
+    // Update statistics
+    function updateStats() {
+        fetch('/api/contactos-proactivos/stats')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('pending-count').textContent = data.pending_count || 0;
+                document.getElementById('sent-count').textContent = data.sent_count || 0;
+                document.getElementById('responded-count').textContent = data.responded_count || 0;
+                document.getElementById('error-count').textContent = data.error_count || 0;
+            })
+            .catch(error => console.error('Error updating stats:', error));
+    }
+
+    // Helper functions
+    function getStatusText(status) {
+        const statusMap = {
+            'pendiente': 'Pendiente',
+            'enviado': 'Enviado',
+            'respondido': 'Respondido',
+            'error': 'Error'
+        };
+        return statusMap[status] || status;
+    }
+
+    function getPriorityText(priority) {
+        const priorityMap = {
+            1: 'Alta',
+            2: 'Media',
+            3: 'Baja'
+        };
+        return priorityMap[priority] || priority;
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleString('es-ES');
+    }
+
+    // Auto-refresh function
+    function refreshPageData() {
+        loadContacts();
+        updateStats();
+    }
+</script>
+{% endblock %}

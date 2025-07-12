@@ -334,22 +334,95 @@ class LeadTrackingService:
             print(f"❌ Error obteniendo métricas: {e}")
             return {'error': str(e)}
     
+    def _parse_fecha_iso(self, fecha_str: str) -> datetime:
+        """Parsea fecha ISO usando la función existente"""
+        if not fecha_str:
+            return datetime.now()
+        return parse_supabase_date(fecha_str)
+    
+    def _construir_lead_desde_datos(self, data: Dict) -> Optional[Lead]:
+        """Construye un objeto Lead desde datos de la base de datos"""
+        try:
+            # Parsear información del prospecto
+            info_prospecto_raw = data.get('info_prospecto', '{}')
+            if isinstance(info_prospecto_raw, str):
+                info_prospecto_dict = json.loads(info_prospecto_raw)
+            else:
+                info_prospecto_dict = info_prospecto_raw or {}
+            
+            info_prospecto = ProspectoInfo(
+                uso_vehiculo=info_prospecto_dict.get('uso_vehiculo'),
+                comprobacion_ingresos=info_prospecto_dict.get('comprobacion_ingresos'),
+                monto_enganche=info_prospecto_dict.get('monto_enganche'),
+                historial_credito=info_prospecto_dict.get('historial_credito'),
+                modelo_interes=info_prospecto_dict.get('modelo_interes'),
+                ingresos_mensuales=info_prospecto_dict.get('ingresos_mensuales'),
+                ciudad=info_prospecto_dict.get('ciudad'),
+                ocupacion=info_prospecto_dict.get('ocupacion'),
+                edad_aproximada=info_prospecto_dict.get('edad_aproximada'),
+                tiene_auto_actual=info_prospecto_dict.get('tiene_auto_actual'),
+                presupuesto_maximo=info_prospecto_dict.get('presupuesto_maximo'),
+                urgencia_compra=info_prospecto_dict.get('urgencia_compra')
+            )
+            
+            # Construir el lead
+            lead = Lead(
+                telefono=data['telefono'],
+                nombre=data.get('nombre', ''),
+                estado=EstadoLead(data.get('estado', 'contacto_inicial')),
+                temperatura=TemperaturaMercado(data.get('temperatura', 'frio')),
+                canal_origen=CanalOrigen(data.get('canal_origen', 'whatsapp')),
+                fecha_creacion=self._parse_fecha_iso(data.get('fecha_creacion')),
+                ultima_interaccion=self._parse_fecha_iso(data.get('ultima_interaccion')),
+                info_prospecto=info_prospecto,
+                total_mensajes_recibidos=data.get('total_mensajes_recibidos', 0),
+                total_mensajes_enviados=data.get('total_mensajes_enviados', 0),
+                total_llamadas=data.get('total_llamadas', 0),
+                total_citas_agendadas=data.get('total_citas_agendadas', 0),
+                total_citas_completadas=data.get('total_citas_completadas', 0),
+                score_calificacion=data.get('score_calificacion', 0.0),
+                probabilidad_cierre=data.get('probabilidad_cierre', 0.0),
+                valor_estimado_venta=data.get('valor_estimado_venta', 0.0),
+                notas_importantes=data.get('notas_importantes', ''),
+                email=data.get('email'),
+                ciudad=data.get('ciudad'),
+                asesor_asignado=data.get('asesor_asignado')
+            )
+            
+            return lead
+            
+        except Exception as e:
+            print(f"❌ Error construyendo lead desde datos: {e}")
+            return None
+    
     def obtener_leads_por_prioridad(self, limite: int = 20) -> List[Lead]:
-        """Obtiene leads ordenados por prioridad"""
+        """Obtiene leads ordenados por prioridad (optimizado)"""
         if not supabase:
             return []
             
         try:
-            response = supabase.table(self.tabla_leads).select('*').order('score_calificacion', desc=True).limit(limite).execute()
+            # Obtener leads con filtro directo en la consulta para evitar N+1 queries
+            response = supabase.table(self.tabla_leads)\
+                .select('*')\
+                .not_.in_('estado', ['vendido', 'perdido_interes', 'descalificado'])\
+                .order('score_calificacion', desc=True)\
+                .limit(limite)\
+                .execute()
             
             leads = []
             for data in response.data:
-                lead = self.obtener_lead(data['telefono'])
-                if lead and lead.estado not in [EstadoLead.VENDIDO, EstadoLead.PERDIDO_INTERES, EstadoLead.DESCALIFICADO]:
-                    leads.append(lead)
+                try:
+                    # Construir lead directamente desde los datos sin consulta adicional
+                    lead = self._construir_lead_desde_datos(data)
+                    if lead:
+                        leads.append(lead)
+                except Exception as e:
+                    print(f"⚠️ Error construyendo lead {data.get('telefono')}: {e}")
+                    continue
             
             return leads
             
         except Exception as e:
             print(f"❌ Error obteniendo leads por prioridad: {e}")
+            # Fallback simple en caso de error
             return []

@@ -1,279 +1,164 @@
 # services/whatsapp_service.py
 import os
 import requests
-from typing import Dict, Optional
+import logging
+from dotenv import load_dotenv
 
 class WhatsAppService:
     """
-    Servicio centralizado para envío de mensajes por WhatsApp Business API
+    Servicio para gestionar la conexión y el envío de mensajes
+    a través de la API de WhatsApp Business.
     """
-    
     def __init__(self):
-        self.token = os.getenv("WHATSAPP_TOKEN")
-        self.phone_number_id = os.getenv("PHONE_NUMBER_ID")
-        self.enabled = bool(self.token and self.phone_number_id)
-        
-        if self.enabled:
-            print("✅ WhatsApp Business API Service inicializado")
-        else:
-            print("⚠️ WhatsApp Business API no configurado (WHATSAPP_TOKEN o PHONE_NUMBER_ID faltantes)")
-    
-    def enviar_mensaje(self, telefono: str, mensaje: str) -> Dict[str, any]:
+        self.api_version = 'v19.0'
+        self.base_url = None
+        self.headers = None
+        self.token = None
+        self.phone_number_id = None
+        self.enabled = False
+        self.load_config()
+        print("✅ WhatsApp Business API Service inicializado")
+
+    def load_config(self):
         """
-        Envía un mensaje de WhatsApp a un número específico
-        
-        Args:
-            telefono: Número de teléfono destino (formato: +52XXXXXXXXXX)
-            mensaje: Mensaje de texto a enviar
-            
-        Returns:
-            Dict con el resultado del envío
+        Carga o recarga la configuración desde el archivo .env.
+        La clave aquí es `override=True` para forzar la relectura del archivo.
         """
-        if not self.enabled:
-            print(f"📱 SIMULADO - WhatsApp a {telefono}: {mensaje}")
-            return {
-                'success': True,
-                'simulado': True,
-                'telefono': telefono,
-                'mensaje': mensaje
-            }
+        load_dotenv(override=True) 
         
-        try:
-            # Limpiar número de teléfono (remover espacios, guiones, etc.)
-            telefono_limpio = self._limpiar_telefono(telefono)
-            
-            url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}/messages"
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": telefono_limpio,
-                "type": "text",
-                "text": {"body": mensaje}
-            }
-            
-            headers = {
+        # Try both variable naming conventions
+        self.token = os.getenv("WHATSAPP_API_TOKEN") or os.getenv("WHATSAPP_TOKEN")
+        self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID") or os.getenv("PHONE_NUMBER_ID")
+        
+        if self.token and self.phone_number_id:
+            self.base_url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}"
+            self.headers = {
                 "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
-            
-            response = requests.post(url, json=payload, headers=headers, timeout=15)
-            
-            if response.ok:
-                result = response.json()
-                print(f"✅ WhatsApp enviado a {telefono}: {response.status_code}")
-                return {
-                    'success': True,
-                    'telefono': telefono,
-                    'mensaje': mensaje,
-                    'message_id': result.get('messages', [{}])[0].get('id'),
-                    'status_code': response.status_code
-                }
-            else:
-                error_text = response.text
-                print(f"❌ Error enviando WhatsApp a {telefono}: {response.status_code} - {error_text}")
-                return {
-                    'success': False,
-                    'error': f"HTTP {response.status_code}: {error_text}",
-                    'telefono': telefono,
-                    'status_code': response.status_code
-                }
-                
-        except requests.exceptions.Timeout:
-            error_msg = f"Timeout enviando mensaje a WhatsApp ({telefono})"
-            print(f"⏱️ {error_msg}")
-            return {
-                'success': False,
-                'error': error_msg,
-                'telefono': telefono
-            }
-        except Exception as e:
-            error_msg = f"Error enviando WhatsApp a {telefono}: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {
-                'success': False,
-                'error': error_msg,
-                'telefono': telefono
-            }
-    
-    def enviar_mensaje_template(self, telefono: str, template_name: str, parameters: Optional[Dict] = None) -> Dict[str, any]:
-        """
-        Envía un mensaje usando un template de WhatsApp Business
-        
-        Args:
-            telefono: Número de teléfono destino
-            template_name: Nombre del template aprobado
-            parameters: Parámetros para el template
-            
-        Returns:
-            Dict con el resultado del envío
-        """
+            self.enabled = True
+            print(f"🔑 Token cargado: {self.token[:20]}... (y phone_number_id)")
+        else:
+            self.enabled = False
+            print("⚠️ WhatsApp no configurado. Faltan tokens de WhatsApp (WHATSAPP_TOKEN/WHATSAPP_API_TOKEN y PHONE_NUMBER_ID/WHATSAPP_PHONE_NUMBER_ID) en .env")
+
+    def reload_token(self):
+        """Recarga el token y la configuración desde el archivo .env."""
+        print("🔄 Recargando token de WhatsApp...")
+        token_anterior = self.token
+        self.load_config() # Esta función ahora relee el .env gracias a override=True
+        print(f"🔄 Token anterior: {token_anterior[:20] if token_anterior else 'N/A'}...")
+        print(f"🔑 Token nuevo: {self.token[:20] if self.token else 'N/A'}...")
+        return self.enabled
+
+    def enviar_mensaje(self, telefono, mensaje):
+        """Envía un mensaje de texto simple."""
         if not self.enabled:
-            print(f"📱 SIMULADO - Template '{template_name}' a {telefono}")
-            return {
-                'success': True,
-                'simulado': True,
-                'telefono': telefono,
-                'template': template_name
-            }
+            logging.error("❌ Error enviando WhatsApp: servicio no habilitado.")
+            return {'success': False, 'error': 'Servicio no habilitado'}
+
+        url = f"{self.base_url}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": telefono,
+            "type": "text",
+            "text": {"body": mensaje}
+        }
         
         try:
-            telefono_limpio = self._limpiar_telefono(telefono)
-            
-            url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}/messages"
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": telefono_limpio,
-                "type": "template",
-                "template": {
-                    "name": template_name,
-                    "language": {"code": "es"}
+            response = requests.post(url, json=payload, headers=self.headers)
+            if response.status_code == 200:
+                logging.info(f"✅ Mensaje de texto enviado a {telefono}")
+                return {'success': True, 'data': response.json()}
+            else:
+                logging.error(f"❌ Error enviando WhatsApp a {telefono}: {response.status_code} - {response.text}")
+                return {'success': False, 'status_code': response.status_code, 'error': response.json()}
+        except Exception as e:
+            logging.error(f"❌ Excepción enviando WhatsApp: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def enviar_mensaje_template(self, telefono, template_name, language_code='es_MX', parameters=None):
+        """Envía un mensaje usando una plantilla de WhatsApp."""
+        if not self.enabled:
+            logging.error("❌ Error enviando plantilla: servicio no habilitado.")
+            return {'success': False, 'error': 'Servicio no habilitado'}
+
+        url = f"{self.base_url}/messages"
+        
+        # Construir payload base
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": telefono,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {
+                    "code": language_code
                 }
             }
-            
-            # Agregar parámetros si los hay
+        }
+
+        # Agregar componentes con parámetros según la plantilla
+        if parameters:
+            components = self._build_template_components(template_name, parameters)
+            if components:
+                payload['template']['components'] = components
+
+        try:
+            response = requests.post(url, json=payload, headers=self.headers)
+            if response.status_code == 200:
+                logging.info(f"✅ Plantilla '{template_name}' enviada a {telefono}")
+                return {'success': True, 'data': response.json()}
+            else:
+                logging.error(f"❌ Error enviando plantilla a {telefono}: {response.status_code} - {response.text}")
+                return {'success': False, 'status_code': response.status_code, 'error': response.json()}
+        except Exception as e:
+            logging.error(f"❌ Excepción enviando plantilla: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def _build_template_components(self, template_name, parameters):
+        """Construye los componentes de la plantilla según el formato de Meta"""
+        if template_name == "saludo_lead":
+            return [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": parameters.get('nombre', 'Cliente')}
+                    ]
+                }
+            ]
+        elif template_name == "recordatorio_cita":
+            return [
+                {
+                    "type": "body", 
+                    "parameters": [
+                        {"type": "text", "text": parameters.get('nombre', 'Cliente')},
+                        {"type": "text", "text": parameters.get('fecha', 'Fecha por confirmar')},
+                        {"type": "text", "text": parameters.get('hora', 'Hora por confirmar')},
+                        {"type": "text", "text": parameters.get('direccion', 'Av. Revolución 123, Nissan Tijuana')}
+                    ]
+                }
+            ]
+        else:
+            # Para plantillas desconocidas, intentar parámetros genéricos
             if parameters:
-                payload["template"]["components"] = [
+                return [
                     {
                         "type": "body",
-                        "parameters": [{"type": "text", "text": param} for param in parameters.values()]
+                        "parameters": [
+                            {"type": "text", "text": str(value)} 
+                            for value in parameters.values()
+                        ]
                     }
                 ]
-            
-            headers = {
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json"
-            }
-            
-            response = requests.post(url, json=payload, headers=headers, timeout=15)
-            
-            if response.ok:
-                result = response.json()
-                print(f"✅ Template WhatsApp enviado a {telefono}: {template_name}")
-                return {
-                    'success': True,
-                    'telefono': telefono,
-                    'template': template_name,
-                    'message_id': result.get('messages', [{}])[0].get('id'),
-                    'status_code': response.status_code
-                }
-            else:
-                error_text = response.text
-                print(f"❌ Error enviando template a {telefono}: {response.status_code} - {error_text}")
-                return {
-                    'success': False,
-                    'error': f"HTTP {response.status_code}: {error_text}",
-                    'telefono': telefono,
-                    'template': template_name
-                }
-                
-        except Exception as e:
-            error_msg = f"Error enviando template a {telefono}: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {
-                'success': False,
-                'error': error_msg,
-                'telefono': telefono,
-                'template': template_name
-            }
-    
-    def obtener_plantillas_disponibles(self) -> Dict[str, any]:
-        """
-        Obtiene la lista de plantillas disponibles en WhatsApp Business
-        
-        Returns:
-            Dict con las plantillas disponibles
-        """
-        if not self.enabled:
-            return {
-                'success': False,
-                'plantillas': [],
-                'message': 'WhatsApp Business API no configurado'
-            }
-        
-        try:
-            url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}/message_templates"
-            
-            headers = {
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json"
-            }
-            
-            response = requests.get(url, headers=headers, timeout=15)
-            
-            if response.ok:
-                data = response.json()
-                plantillas = []
-                
-                for template in data.get('data', []):
-                    if template.get('status') == 'APPROVED':
-                        plantillas.append({
-                            'name': template.get('name'),
-                            'status': template.get('status'),
-                            'category': template.get('category'),
-                            'language': template.get('language')
-                        })
-                
-                print(f"✅ Encontradas {len(plantillas)} plantillas aprobadas")
-                return {
-                    'success': True,
-                    'plantillas': plantillas,
-                    'total': len(plantillas)
-                }
-            else:
-                error_text = response.text
-                print(f"❌ Error obteniendo plantillas: {response.status_code} - {error_text}")
-                return {
-                    'success': False,
-                    'error': f"HTTP {response.status_code}: {error_text}",
-                    'plantillas': []
-                }
-                
-        except Exception as e:
-            error_msg = f"Error obteniendo plantillas: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {
-                'success': False,
-                'error': error_msg,
-                'plantillas': []
-            }
+        return None
 
-    def _limpiar_telefono(self, telefono: str) -> str:
-        """
-        Limpia y formatea el número de teléfono
-        """
-        # Remover espacios, guiones, paréntesis
-        telefono_limpio = ''.join(filter(str.isdigit, telefono))
-        
-        # Agregar código de país si no lo tiene
-        if not telefono_limpio.startswith('52') and len(telefono_limpio) == 10:
-            telefono_limpio = '52' + telefono_limpio
-        
-        return telefono_limpio
-    
-    def verificar_conexion(self) -> bool:
-        """
-        Verifica que la conexión con WhatsApp Business API funcione
-        """
-        if not self.enabled:
-            return False
-        
-        try:
-            url = f"https://graph.facebook.com/v18.0/{self.phone_number_id}"
-            headers = {"Authorization": f"Bearer {self.token}"}
-            
-            response = requests.get(url, headers=headers, timeout=10)
-            return response.ok
-        except:
-            return False
+    def verificar_conexion(self):
+        """Verifica si el token y phone_number_id son válidos."""
+        if not self.enabled: return False
+        check_url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}"
+        try: return requests.get(check_url, headers=self.headers, params={'fields': 'name'}).status_code == 200
+        except Exception: return False
 
-# Instancia global para usar en toda la aplicación
+# Instancia única del servicio para ser importada en otros módulos
 whatsapp_service = WhatsAppService()
-
-# Función de conveniencia para mantener compatibilidad
-def enviar_whatsapp(telefono: str, mensaje: str) -> bool:
-    """
-    Función de conveniencia para enviar mensajes de WhatsApp
-    """
-    resultado = whatsapp_service.enviar_mensaje(telefono, mensaje)
-    return resultado.get('success', False)

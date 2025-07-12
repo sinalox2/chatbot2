@@ -42,6 +42,7 @@ class CanalOrigen(Enum):
     INSTAGRAM_ADS = "instagram_ads"
     GOOGLE_ADS = "google_ads"
     WHATSAPP_DIRECTO = "whatsapp_directo"
+    WHATSAPP = "whatsapp"  # Agregado para compatibilidad
     REFERENCIA = "referencia"
     PAGINA_WEB = "pagina_web"
     LLAMADA_DIRECTA = "llamada_directa"

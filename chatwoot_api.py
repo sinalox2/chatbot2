@@ -1,46 +1,100 @@
 import requests
+import logging
+
+# Configuración de logging
+logging.basicConfig(level=logging.INFO)
 
 # Configuración
 CHATWOOT_BASE_URL = "https://crm.progreweb.com"
 ACCOUNT_ID = "7"
 BOT_TOKEN = "zqg549VjpbcR6S6vQ9C6CMJY"
-INBOX_ID = "https://crm.progreweb.com/app/accounts/7/settings/inboxes/35P"  # ← Reemplaza con el ID real de tu inbox de WhatsApp
+INBOX_ID = 35  # ID del inbox de WhatsApp
 
 headers = {
-    "Authorization": f"Bot {BOT_TOKEN}",
+    "api_access_token": BOT_TOKEN,
     "Content-Type": "application/json"
 }
 
-def crear_contacto(nombre, telefono):
+def _handle_request_error(response):
+    """Maneja y loguea errores de HTTP."""
+    logging.error(f"Error en API de Chatwoot - Status: {response.status_code}")
+    logging.error(f"Respuesta: {response.text}")
+    response.raise_for_status()
+
+def buscar_contacto(telefono: str):
+    """Busca un contacto por número de teléfono."""
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/contacts/search"
+    params = {'q': telefono.replace('+', '')}
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        
+        data = response.json()
+        if data and len(data.get('payload', [])) > 0:
+            logging.info(f"Contacto encontrado para {telefono}: {data['payload'][0]['id']}")
+            return data['payload'][0]
+        return None
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción en la llamada a la API de Chatwoot (buscar): {e}")
+        return None
+
+def crear_contacto(nombre: str, telefono: str):
+    """Crea un nuevo contacto en Chatwoot."""
     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/contacts"
     data = {
         "name": nombre,
         "phone_number": telefono,
         "inbox_id": INBOX_ID
     }
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        if response.status_code == 422: # Contacto ya existe
+            logging.warning(f"El contacto {telefono} ya existe, buscándolo...")
+            return buscar_contacto(telefono)
+        
+        if not response.ok:
+            _handle_request_error(response)
 
-def crear_conversacion(contact_id):
+        # La respuesta de creación anida el contacto en payload -> contact
+        payload = response.json().get('payload', {})
+        contact_data = payload.get('contact')
+        logging.info(f"Contacto creado para {telefono}: {contact_data.get('id') if contact_data else 'N/A'}")
+        return contact_data
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción en la llamada a la API de Chatwoot (crear): {e}")
+        return None
+
+def crear_conversacion(contact_id: int):
+    """Crea una nueva conversación para un contacto."""
     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations"
     data = {
-        "source_id": contact_id,
+        "contact_id": contact_id,
         "inbox_id": INBOX_ID
     }
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción en la llamada a la API de Chatwoot (conversación): {e}")
+        return None
 
-# Ejemplo de uso
-if __name__ == "__main__":
-    nombre = "Juan Pérez"
-    telefono = "+5216612345678"  # Debe tener formato internacional
-
-    contacto = crear_contacto(nombre, telefono)
-    print("✅ Contacto creado:", contacto)
-
-    contacto_id = contacto.get("id")
-    if contacto_id:
-        conversacion = crear_conversacion(contacto_id)
-        print("💬 Conversación creada:", conversacion)
+def crear_mensaje_privado(conversation_id: int, mensaje: str):
+    """Crea un mensaje o nota privada en una conversación."""
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conversation_id}/messages"
+    data = {
+        "content": mensaje,
+        "private": True,
+        "message_type": "outgoing"
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción en la llamada a la API de Chatwoot (mensaje): {e}")
+        return None

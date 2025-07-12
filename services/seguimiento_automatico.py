@@ -236,13 +236,21 @@ class SeguimientoAutomaticoService:
             else:
                 template = self.get_default_template(seguimiento_data['tipo_seguimiento'])
             
-            # Reemplazar variables
-            mensaje = template.format(
-                nombre=lead.nombre,
-                modelo=lead.info_prospecto.modelo_interes or 'auto Nissan',
-                dias=lead.dias_sin_interaccion(),
-                telefono_asesor='6644918078'
-            )
+            # Validar template antes de usar
+            if not template:
+                template = "Hola {nombre}, ¿cómo vas con la decisión del {modelo}? Soy César 😊"
+            
+            # Reemplazar variables con validación
+            try:
+                mensaje = template.format(
+                    nombre=lead.nombre or 'amigo',
+                    modelo=lead.info_prospecto.modelo_interes or 'auto Nissan',
+                    dias=lead.dias_sin_interaccion(),
+                    telefono_asesor='6644918078'
+                )
+            except (AttributeError, KeyError) as e:
+                print(f"❌ Error formateando template: {e}")
+                mensaje = f"Hola {lead.nombre or 'amigo'}, ¿cómo puedo ayudarte con tu auto Nissan? Soy César 😊"
             
             return mensaje
             

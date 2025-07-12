@@ -1,0 +1,495 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Principal - Nissan CRM{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0"><i class="fas fa-tachometer-alt"></i> Dashboard Principal</h2>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary" onclick="refreshDashboard()">
+                <i class="fas fa-sync-alt"></i> Actualizar
+            </button>
+            <button class="btn btn-success" onclick="exportData()">
+                <i class="fas fa-download"></i> Exportar
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards Row -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card text-center">
+                <div class="icon text-primary">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="number text-primary" id="total-leads">{{ stats.total_leads or 0 }}</div>
+                <div class="label">Total Leads</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card text-center">
+                <div class="icon text-success">
+                    <i class="fas fa-fire"></i>
+                </div>
+                <div class="number text-success" id="hot-leads">{{ stats.hot_leads or 0 }}</div>
+                <div class="label">Leads Calientes</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card text-center">
+                <div class="icon text-warning">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="number text-warning" id="pending-followups">{{ stats.pending_followups or 0 }}</div>
+                <div class="label">Seguimientos Pendientes</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card text-center">
+                <div class="icon text-info">
+                    <i class="fas fa-dollar-sign"></i>
+                </div>
+                <div class="number text-info" id="monthly-revenue">$<span id="revenue-amount">{{ stats.monthly_revenue or 0 }}</span></div>
+                <div class="label">Ingresos del Mes</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-line"></i> Tendencia de Leads (Últimos 30 días)</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="leadsChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-pie"></i> Distribución por Estado</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="statusChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity & Quick Actions -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-history"></i> Actividad Reciente</h5>
+                    <small class="text-muted">Última actualización: <span id="last-update">{{ last_update }}</span></small>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Hora</th>
+                                    <th>Contacto</th>
+                                    <th>Acción</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-activity">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-bolt"></i> Acciones Rápidas</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" onclick="location.href='/contactos_proactivos'">
+                            <i class="fas fa-plus"></i> Nuevo Contacto Proactivo
+                        </button>
+                        <button class="btn btn-success" onclick="location.href='/carga_masiva'">
+                            <i class="fas fa-upload"></i> Carga Masiva
+                        </button>
+                        <button class="btn btn-warning" onclick="sendPendingContacts()">
+                            <i class="fas fa-paper-plane"></i> Enviar Contactos Pendientes
+                        </button>
+                        <button class="btn btn-info" onclick="location.href='/reportes_diarios'">
+                            <i class="fas fa-file-alt"></i> Generar Reporte
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-server"></i> Estado del Sistema</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshSystemStatus()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>WhatsApp API</span>
+                        <div>
+                            <span class="badge bg-success" id="whatsapp-status">Conectado</span>
+                            <button class="btn btn-sm btn-outline-warning ms-1" onclick="reloadWhatsAppToken()" title="Recargar Token">
+                                <i class="fas fa-key"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Base de Datos</span>
+                        <span class="badge bg-success" id="db-status">Conectado</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Servicio de Seguimiento</span>
+                        <span class="badge bg-success" id="followup-status">Activo</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span>Token WhatsApp</span>
+                        <small class="text-muted" id="token-preview">Cargando...</small>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>Última Sincronización</span>
+                        <small class="text-muted" id="last-sync">{{ last_sync }}</small>
+                    </div>
+                    
+                    <!-- WhatsApp Test Section -->
+                    <div class="mt-3 pt-3 border-top">
+                        <h6 class="mb-2">Prueba de WhatsApp</h6>
+                        <div class="input-group input-group-sm">
+                            <input type="tel" class="form-control" id="test-phone" placeholder="+526647499577">
+                            <button class="btn btn-outline-success" type="button" onclick="testWhatsAppMessage()">
+                                <i class="fas fa-paper-plane"></i> Probar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="loading">
+                    <i class="fas fa-spinner"></i>
+                    <p class="mt-2">Cargando...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Charts initialization
+    let leadsChart, statusChart;
+    
+    function initCharts() {
+        // Leads Trend Chart
+        const ctx1 = document.getElementById('leadsChart').getContext('2d');
+        leadsChart = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: {{ chart_data.labels | safe }},
+                datasets: [{
+                    label: 'Leads Nuevos',
+                    data: {{ chart_data.leads_data | safe }},
+                    borderColor: '#e60012',
+                    backgroundColor: 'rgba(230, 0, 18, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        }
+                    }
+                }
+            }
+        });
+
+        // Status Distribution Chart
+        const ctx2 = document.getElementById('statusChart').getContext('2d');
+        statusChart = new Chart(ctx2, {
+            type: 'doughnut',
+            data: {
+                labels: {{ status_data.labels | safe }},
+                datasets: [{
+                    data: {{ status_data.values | safe }},
+                    backgroundColor: [
+                        '#e60012',
+                        '#28a745',
+                        '#ffc107',
+                        '#17a2b8',
+                        '#6c757d'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    // Refresh dashboard data
+    function refreshDashboard() {
+        const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        modal.show();
+        
+        fetch('/api/dashboard-data')
+            .then(response => response.json())
+            .then(data => {
+                updateDashboardData(data);
+                modal.hide();
+            })
+            .catch(error => {
+                console.error('Error refreshing dashboard:', error);
+                modal.hide();
+                alert('Error al actualizar el dashboard');
+            });
+    }
+
+    // Update dashboard data
+    function updateDashboardData(data) {
+        document.getElementById('total-leads').textContent = data.stats.total_leads || 0;
+        document.getElementById('hot-leads').textContent = data.stats.hot_leads || 0;
+        document.getElementById('pending-followups').textContent = data.stats.pending_followups || 0;
+        document.getElementById('revenue-amount').textContent = data.stats.monthly_revenue || 0;
+        
+        // Update charts
+        if (leadsChart) {
+            leadsChart.data.labels = data.chart_data.labels;
+            leadsChart.data.datasets[0].data = data.chart_data.leads_data;
+            leadsChart.update();
+        }
+        
+        if (statusChart) {
+            statusChart.data.labels = data.status_data.labels;
+            statusChart.data.datasets[0].data = data.status_data.values;
+            statusChart.update();
+        }
+        
+        // Update recent activity
+        updateRecentActivity(data.recent_activity);
+        
+        // Update last update time
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString('es-ES');
+    }
+
+    // Update recent activity table
+    function updateRecentActivity(activities) {
+        const tbody = document.getElementById('recent-activity');
+        tbody.innerHTML = '';
+        
+        activities.forEach(activity => {
+            const row = `
+                <tr>
+                    <td>${activity.time}</td>
+                    <td>${activity.contact}</td>
+                    <td>${activity.action}</td>
+                    <td><span class="status-badge status-${activity.status}">${activity.status_text}</span></td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    }
+
+    // Send pending contacts
+    function sendPendingContacts() {
+        if (confirm('¿Enviar todos los contactos pendientes?')) {
+            const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+            modal.show();
+            
+            fetch('/api/send-pending-contacts', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    modal.hide();
+                    alert(`Proceso completado: ${data.sent} enviados, ${data.errors} errores`);
+                    refreshDashboard();
+                })
+                .catch(error => {
+                    modal.hide();
+                    alert('Error al enviar contactos');
+                });
+        }
+    }
+
+    // Export data
+    function exportData() {
+        window.open('/api/export-dashboard-data', '_blank');
+    }
+
+    // Auto-refresh function
+    function refreshPageData() {
+        refreshDashboard();
+        refreshSystemStatus();
+    }
+
+    // System status functions
+    function refreshSystemStatus() {
+        fetch('/api/system/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const systemStatus = data.system_status;
+                    
+                    // Update WhatsApp status
+                    const whatsappStatus = systemStatus.whatsapp;
+                    const statusBadge = document.getElementById('whatsapp-status');
+                    
+                    if (whatsappStatus.status === 'connected') {
+                        statusBadge.className = 'badge bg-success';
+                        statusBadge.textContent = 'Conectado';
+                    } else if (whatsappStatus.status === 'error') {
+                        statusBadge.className = 'badge bg-warning';
+                        statusBadge.textContent = 'Sin conexión';
+                    } else if (whatsappStatus.status === 'disabled') {
+                        statusBadge.className = 'badge bg-secondary';
+                        statusBadge.textContent = 'Deshabilitado';
+                    } else {
+                        statusBadge.className = 'badge bg-danger';
+                        statusBadge.textContent = 'Error';
+                    }
+                    
+                    // Update token preview
+                    document.getElementById('token-preview').textContent = whatsappStatus.token_preview || 'No disponible';
+                    
+                    // Update database status
+                    const dbStatus = systemStatus.database;
+                    const dbBadge = document.getElementById('db-status');
+                    if (dbStatus.status === 'connected') {
+                        dbBadge.className = 'badge bg-success';
+                        dbBadge.textContent = 'Conectado';
+                    } else {
+                        dbBadge.className = 'badge bg-danger';
+                        dbBadge.textContent = 'Error';
+                    }
+                    
+                    // Update followup service status
+                    const followupStatus = systemStatus.followup_service;
+                    const followupBadge = document.getElementById('followup-status');
+                    if (followupStatus.status === 'active') {
+                        followupBadge.className = 'badge bg-success';
+                        followupBadge.textContent = 'Activo';
+                    } else {
+                        followupBadge.className = 'badge bg-secondary';
+                        followupBadge.textContent = 'Inactivo';
+                    }
+                    
+                    // Update last sync time
+                    document.getElementById('last-sync').textContent = new Date().toLocaleString('es-ES');
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing system status:', error);
+                document.getElementById('whatsapp-status').className = 'badge bg-danger';
+                document.getElementById('whatsapp-status').textContent = 'Error';
+                document.getElementById('db-status').className = 'badge bg-danger';
+                document.getElementById('db-status').textContent = 'Error';
+            });
+    }
+
+    function reloadWhatsAppToken() {
+        if (confirm('¿Recargar el token de WhatsApp desde las variables de entorno?')) {
+            const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+            modal.show();
+            
+            fetch('/api/whatsapp/reload-token', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    modal.hide();
+                    if (data.success) {
+                        alert('Token recargado exitosamente');
+                        refreshSystemStatus();
+                    } else {
+                        alert('Error recargando token: ' + (data.error || 'Error desconocido'));
+                    }
+                })
+                .catch(error => {
+                    modal.hide();
+                    alert('Error recargando token: ' + error.message);
+                });
+        }
+    }
+
+    function testWhatsAppMessage() {
+        const telefono = document.getElementById('test-phone').value;
+        if (!telefono) {
+            alert('Por favor ingresa un número de teléfono');
+            return;
+        }
+        
+        if (confirm(`¿Enviar mensaje de prueba a ${telefono}?`)) {
+            const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+            modal.show();
+            
+            fetch('/api/whatsapp/test-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telefono: telefono })
+            })
+            .then(response => response.json())
+            .then(data => {
+                modal.hide();
+                if (data.success) {
+                    alert('Mensaje de prueba enviado exitosamente');
+                    if (data.result.token_renovado) {
+                        alert('Nota: El token fue renovado automáticamente durante el envío');
+                        refreshSystemStatus();
+                    }
+                } else {
+                    alert('Error enviando mensaje: ' + (data.error || data.result?.error || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                modal.hide();
+                alert('Error enviando mensaje: ' + error.message);
+            });
+        }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initCharts();
+        
+        // Initial data load
+        refreshDashboard();
+        refreshSystemStatus();
+    });
+</script>
+{% endblock %}
