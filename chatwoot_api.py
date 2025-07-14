@@ -98,3 +98,53 @@ def crear_mensaje_privado(conversation_id: int, mensaje: str):
     except requests.exceptions.RequestException as e:
         logging.error(f"Excepción en la llamada a la API de Chatwoot (mensaje): {e}")
         return None
+
+def enviar_mensaje_publico(conversation_id: int, mensaje: str):
+    """Envía un mensaje público en una conversación (visible para el cliente)."""
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conversation_id}/messages"
+    data = {
+        "content": mensaje,
+        "private": False,
+        "message_type": "outgoing"
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        logging.info(f"✅ Mensaje público enviado a conversación {conversation_id}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción enviando mensaje público a Chatwoot: {e}")
+        return None
+
+def obtener_conversacion_por_telefono(telefono: str):
+    """Obtiene la conversación activa de un contacto por teléfono."""
+    contacto = buscar_contacto(telefono)
+    if not contacto:
+        return None
+    
+    # Buscar conversaciones del contacto
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations"
+    params = {
+        'inbox_id': INBOX_ID,
+        'status': 'open'  # Solo conversaciones abiertas
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        
+        data = response.json()
+        conversations = data.get('data', {}).get('payload', [])
+        
+        # Buscar conversación del contacto específico
+        for conv in conversations:
+            if conv.get('meta', {}).get('sender', {}).get('phone_number') == telefono:
+                logging.info(f"Conversación encontrada para {telefono}: {conv['id']}")
+                return conv
+                
+        return None
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error obteniendo conversación por teléfono: {e}")
+        return None
