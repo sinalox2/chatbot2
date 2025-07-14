@@ -1244,7 +1244,7 @@ def send_whatsapp_image(telefono: str, image_path: str):
 def send_message_to_chatwoot(telefono: str, mensaje: str):
     """Envía mensaje también a Chatwoot para que aparezca en la interfaz"""
     try:
-        from chatwoot_api import obtener_conversacion_por_telefono, enviar_mensaje_publico
+        from chatwoot_api import obtener_conversacion_por_telefono, enviar_mensaje_publico, buscar_contacto, crear_contacto, crear_conversacion
         
         # Buscar conversación activa del teléfono
         conversacion = obtener_conversacion_por_telefono(telefono)
@@ -1260,8 +1260,31 @@ def send_message_to_chatwoot(telefono: str, mensaje: str):
                 print(f"❌ Error enviando mensaje a Chatwoot para {telefono}")
                 return False
         else:
-            print(f"⚠️ No se encontró conversación activa en Chatwoot para {telefono}")
-            return False
+            print(f"⚠️ No se encontró conversación activa en Chatwoot para {telefono}, creando una nueva...")
+            
+            # Buscar o crear contacto
+            contacto = buscar_contacto(telefono)
+            if not contacto:
+                contacto = crear_contacto("Cliente", telefono)
+                if not contacto:
+                    print(f"❌ No se pudo crear contacto en Chatwoot para {telefono}")
+                    return False
+            
+            # Crear nueva conversación
+            nueva_conversacion = crear_conversacion(contacto['id'])
+            if nueva_conversacion:
+                conversation_id = nueva_conversacion.get('id')
+                resultado = enviar_mensaje_publico(conversation_id, mensaje)
+                
+                if resultado:
+                    print(f"✅ Nueva conversación creada y mensaje enviado a Chatwoot para {telefono}")
+                    return True
+                else:
+                    print(f"❌ Error enviando mensaje a nueva conversación en Chatwoot para {telefono}")
+                    return False
+            else:
+                print(f"❌ No se pudo crear conversación en Chatwoot para {telefono}")
+                return False
             
     except Exception as e:
         print(f"❌ Error enviando a Chatwoot: {e}")
