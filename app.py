@@ -1048,12 +1048,31 @@ def process_whatsapp_message(message_data):
             message_type = message.get("type")
             timestamp = message.get("timestamp")
             
-            # Solo procesar mensajes de texto por ahora
-            if message_type != "text":
+            print(f"📲 Mensaje recibido - Tipo: {message_type}, De: {telefono}")
+            
+            # Procesar diferentes tipos de mensajes
+            mensaje_texto = ""
+            
+            if message_type == "text":
+                mensaje_texto = message.get("text", {}).get("body", "")
+            elif message_type == "button":
+                # Mensaje de botón de plantilla
+                button_data = message.get("button", {})
+                mensaje_texto = button_data.get("text", "") or button_data.get("payload", "")
+                print(f"🔘 Botón presionado: {mensaje_texto}")
+            elif message_type == "interactive":
+                # Mensajes interactivos (botones, listas)
+                interactive = message.get("interactive", {})
+                if interactive.get("type") == "button_reply":
+                    button_reply = interactive.get("button_reply", {})
+                    mensaje_texto = button_reply.get("title", "") or button_reply.get("id", "")
+                elif interactive.get("type") == "list_reply":
+                    list_reply = interactive.get("list_reply", {})
+                    mensaje_texto = list_reply.get("title", "") or list_reply.get("id", "")
+                print(f"🎯 Interacción: {mensaje_texto}")
+            else:
                 print(f"⚠️ Tipo de mensaje no soportado: {message_type}")
                 continue
-            
-            mensaje_texto = message.get("text", {}).get("body", "")
             
             if not mensaje_texto.strip():
                 print("⚠️ Mensaje vacío ignorado")
