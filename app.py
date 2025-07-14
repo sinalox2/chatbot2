@@ -1006,14 +1006,23 @@ def webhook():
                         
         elif data.get("event") == "message_created":
             # Formato de Chatwoot
-            print(f"📱 Procesando mensaje de Chatwoot - Tipo: {data.get('message_type')}")
-            if data.get("message_type") == "incoming":
+            message_type = data.get("message_type")
+            sender_type = data.get("sender", {}).get("type", "unknown")
+            content = data.get("content", "")
+            
+            print(f"📱 Chatwoot webhook - Tipo: {message_type}, Sender: {sender_type}")
+            print(f"   📝 Contenido: {content[:100]}...")
+            
+            if message_type == "incoming":
                 print("✅ Mensaje incoming de Chatwoot - procesando...")
                 process_chatwoot_message(data)
             else:
-                print(f"⚠️ Mensaje {data.get('message_type')} de Chatwoot - ignorado")
+                print(f"⚠️ Mensaje {message_type} de Chatwoot - ignorado")
         else:
-            print(f"⚠️ Webhook no reconocido: {data.get('object', 'N/A')} - {data.get('event', 'N/A')}")
+            print(f"⚠️ Webhook no reconocido:")
+            print(f"   Object: {data.get('object', 'N/A')}")
+            print(f"   Event: {data.get('event', 'N/A')}")
+            print(f"   Keys: {list(data.keys())}")
         
         return jsonify({"status": "success"}), 200
         
@@ -1104,7 +1113,21 @@ def process_chatwoot_message(data):
 def process_whatsapp_message(message_data):
     """Procesa mensajes entrantes de WhatsApp Business API directo"""
     try:
+        # Verificar si hay mensajes o solo status updates
         messages = message_data.get("messages", [])
+        statuses = message_data.get("statuses", [])
+        
+        if statuses:
+            print(f"📊 Status update recibido: {len(statuses)} status(es)")
+            for status in statuses:
+                print(f"   📍 Status: {status.get('status')} para {status.get('recipient_id')}")
+            return  # No procesar status updates
+        
+        if not messages:
+            print("⚠️ No hay mensajes para procesar en webhook")
+            return
+        
+        print(f"📱 Procesando {len(messages)} mensaje(s)")
         
         for message in messages:
             # Extraer información del mensaje
