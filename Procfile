@@ -1,1 +1,1 @@
-web: bash start.sh
+web: python3 debug_env.py && gunicorn app:app --bind 0.0.0.0:8000 --workers 1 --timeout 120
