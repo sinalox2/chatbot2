@@ -982,6 +982,9 @@ def process_chatwoot_message(data):
         # Marcar mensaje como procesado
         mark_message_as_processed(source_id)
         
+        # Enviar indicador de escritura antes de generar respuesta
+        send_typing_indicator(telefono)
+        
         # Generar respuesta usando el servicio de conversación
         if CONVERSATION_SERVICE_AVAILABLE:
             try:
@@ -993,9 +996,30 @@ def process_chatwoot_message(data):
                 
                 # Enviar respuesta
                 if respuesta:
-                    # Para Chatwoot, podemos enviar tanto por WhatsApp directo como por Chatwoot API
-                    send_whatsapp_response(telefono, respuesta)
-                    print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
+                    # Manejar nueva estructura de respuesta con posibles imágenes
+                    if isinstance(respuesta, dict):
+                        # Nueva estructura con posibles imágenes
+                        texto_respuesta = respuesta.get('text', '')
+                        
+                        # Enviar por WhatsApp
+                        send_whatsapp_response(telefono, texto_respuesta)
+                        print(f"✅ Mensaje de texto enviado a {telefono}")
+                        
+                        # Enviar también a Chatwoot para que aparezca en la interfaz
+                        send_message_to_chatwoot(telefono, texto_respuesta)
+                        
+                        # Enviar imagen si está disponible
+                        if respuesta.get('type') == 'text_with_image':
+                            image_path = respuesta.get('image_path')
+                            if image_path:
+                                send_whatsapp_image(telefono, image_path)
+                                print(f"📸 Imagen enviada a {telefono}: {image_path}")
+                                # Nota: Las imágenes en Chatwoot requieren manejo especial
+                    else:
+                        # Compatibilidad con respuesta antigua (string)
+                        send_whatsapp_response(telefono, respuesta)
+                        send_message_to_chatwoot(telefono, respuesta)
+                        print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
                 else:
                     print(f"⚠️ No se generó respuesta para {telefono}")
                     
@@ -1054,6 +1078,9 @@ def process_whatsapp_message(message_data):
             # Marcar mensaje como procesado
             mark_message_as_processed(message_id)
             
+            # Enviar indicador de escritura antes de generar respuesta
+            send_typing_indicator(telefono)
+            
             # Generar respuesta usando el servicio de conversación
             if CONVERSATION_SERVICE_AVAILABLE:
                 try:
@@ -1065,8 +1092,30 @@ def process_whatsapp_message(message_data):
                     
                     # Enviar respuesta
                     if respuesta:
-                        send_whatsapp_response(telefono, respuesta)
-                        print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
+                        # Manejar nueva estructura de respuesta con posibles imágenes
+                        if isinstance(respuesta, dict):
+                            # Nueva estructura con posibles imágenes
+                            texto_respuesta = respuesta.get('text', '')
+                            
+                            # Enviar por WhatsApp
+                            send_whatsapp_response(telefono, texto_respuesta)
+                            print(f"✅ Mensaje de texto enviado a {telefono}")
+                            
+                            # Enviar también a Chatwoot para que aparezca en la interfaz
+                            send_message_to_chatwoot(telefono, texto_respuesta)
+                            
+                            # Enviar imagen si está disponible
+                            if respuesta.get('type') == 'text_with_image':
+                                image_path = respuesta.get('image_path')
+                                if image_path:
+                                    send_whatsapp_image(telefono, image_path)
+                                    print(f"📸 Imagen enviada a {telefono}: {image_path}")
+                                    # Nota: Las imágenes en Chatwoot requieren manejo especial
+                        else:
+                            # Compatibilidad con respuesta antigua (string)
+                            send_whatsapp_response(telefono, respuesta)
+                            send_message_to_chatwoot(telefono, respuesta)
+                            print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
                     else:
                         print(f"⚠️ No se generó respuesta para {telefono}")
                         
@@ -1100,6 +1149,27 @@ def mark_message_as_processed(message_id: str):
     """Marca un mensaje como procesado"""
     mensajes_procesados[message_id] = time.time()
 
+def send_typing_indicator(telefono: str):
+    """Envía indicador de 'escribiendo' por WhatsApp"""
+    try:
+        if WHATSAPP_SERVICE_AVAILABLE:
+            from services.whatsapp_service import whatsapp_service
+            resultado = whatsapp_service.enviar_typing_indicator(telefono)
+            
+            if resultado.get('success'):
+                print(f"⌨️ Indicador de escritura enviado a {telefono}")
+                return True
+            else:
+                print(f"⚠️ No se pudo enviar indicador de escritura: {resultado.get('error')}")
+                return False
+        else:
+            print(f"⌨️ SIMULADO - Indicador de escritura a {telefono}")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Error enviando indicador de escritura: {e}")
+        return False
+
 def send_whatsapp_response(telefono: str, mensaje: str):
     """Envía respuesta por WhatsApp"""
     try:
@@ -1122,6 +1192,60 @@ def send_whatsapp_response(telefono: str, mensaje: str):
             
     except Exception as e:
         print(f"❌ Error enviando respuesta de WhatsApp: {e}")
+        return False
+
+def send_whatsapp_image(telefono: str, image_path: str):
+    """Envía imagen por WhatsApp"""
+    try:
+        if WHATSAPP_SERVICE_AVAILABLE:
+            from services.whatsapp_service import whatsapp_service
+            
+            # Construir ruta completa de la imagen
+            full_path = os.path.join(os.path.dirname(__file__), image_path)
+            
+            if not os.path.exists(full_path):
+                print(f"❌ Imagen no encontrada: {full_path}")
+                return False
+            
+            resultado = whatsapp_service.enviar_imagen(telefono, full_path)
+            
+            if not resultado.get('success'):
+                print(f"❌ Error enviando imagen: {resultado.get('error')}")
+                return False
+                
+            return True
+        else:
+            print(f"📸 SIMULADO - Imagen a {telefono}: {image_path}")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Error enviando imagen de WhatsApp: {e}")
+        return False
+
+def send_message_to_chatwoot(telefono: str, mensaje: str):
+    """Envía mensaje también a Chatwoot para que aparezca en la interfaz"""
+    try:
+        from chatwoot_api import obtener_conversacion_por_telefono, enviar_mensaje_publico
+        
+        # Buscar conversación activa del teléfono
+        conversacion = obtener_conversacion_por_telefono(telefono)
+        
+        if conversacion:
+            conversation_id = conversacion.get('id')
+            resultado = enviar_mensaje_publico(conversation_id, mensaje)
+            
+            if resultado:
+                print(f"✅ Mensaje enviado a Chatwoot para {telefono}")
+                return True
+            else:
+                print(f"❌ Error enviando mensaje a Chatwoot para {telefono}")
+                return False
+        else:
+            print(f"⚠️ No se encontró conversación activa en Chatwoot para {telefono}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error enviando a Chatwoot: {e}")
         return False
 
 # ============================================================================

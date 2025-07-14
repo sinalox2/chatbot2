@@ -19,6 +19,8 @@ try:
 except ImportError as e:
     print(f"⚠️ RAG system not available: {e}")
     RAG_AVAILABLE = False
+    def recuperar_contexto(query, k=3):
+        return "Sistema RAG no disponible."
 
 class ConversationService:
     """Servicio para manejar conversaciones con IA usando OpenAI y RAG"""
@@ -121,6 +123,62 @@ class ConversationService:
             print(f"❌ Error managing lead: {e}")
             return None
     
+    def detect_image_request(self, mensaje: str) -> Dict:
+        """Detecta si solicitan imágenes y de qué modelo"""
+        mensaje_lower = mensaje.lower()
+        
+        # Palabras clave para solicitudes de imágenes
+        image_keywords = [
+            'foto', 'fotos', 'imagen', 'imagenes', 'picture', 'pic', 'pics',
+            'se ve', 'como es', 'mostrar', 'muestra', 'enseña', 'ver',
+            'aspecto', 'apariencia', 'colores', 'como se ve', 'que tal se ve'
+        ]
+        
+        wants_image = any(keyword in mensaje_lower for keyword in image_keywords)
+        
+        if wants_image:
+            # Detectar modelo específico
+            modelos_config = {
+                'sentra': ['sentra'],
+                'versa': ['versa'], 
+                'march': ['march'],
+                'kicks': ['kicks', 'kick'],
+                'v-drive': ['v-drive', 'v drive', 'vdrive'],
+                'x-trail': ['x-trail', 'x trail', 'xtrail'],
+                'pathfinder': ['pathfinder', 'path finder'],
+                'frontier': ['frontier'],
+                'np300': ['np300', 'np 300'],
+                'magnite': ['magnite']
+            }
+            
+            for modelo, variantes in modelos_config.items():
+                for variante in variantes:
+                    if variante in mensaje_lower:
+                        # Determinar tipo de imagen solicitada
+                        image_type = 'exterior'  # por defecto
+                        if 'interior' in mensaje_lower or 'adentro' in mensaje_lower:
+                            image_type = 'interior'
+                        elif 'color' in mensaje_lower or 'colores' in mensaje_lower:
+                            image_type = 'colores'
+                        elif 'lateral' in mensaje_lower or 'lado' in mensaje_lower:
+                            image_type = 'lateral'
+                        
+                        return {
+                            'wants_image': True,
+                            'modelo': modelo,
+                            'image_type': image_type,
+                            'image_path': f'images/{modelo}/{modelo}-{image_type}.jpg'
+                        }
+            
+            # Si quiere imagen pero no especifica modelo
+            return {
+                'wants_image': True,
+                'modelo': None,
+                'needs_clarification': True
+            }
+        
+        return {'wants_image': False}
+    
     def analyze_message_intent(self, mensaje: str) -> Dict:
         """Analiza la intención del mensaje del usuario"""
         mensaje_lower = mensaje.lower()
@@ -175,17 +233,24 @@ class ConversationService:
             # Analyze message intent
             intent_info = self.analyze_message_intent(mensaje_usuario)
             
+            # Detect image requests
+            image_request = self.detect_image_request(mensaje_usuario)
+            
             # Get relevant context from RAG if available
             contexto_rag = ""
             if RAG_AVAILABLE:
                 try:
-                    contexto_rag = recuperar_contexto(mensaje_usuario, k=2)
+                    contexto_rag = recuperar_contexto(mensaje_usuario, k=5)
+                    print(f"🔍 RAG Context found: {len(contexto_rag)} characters")
+                    if "V‑Drive" in contexto_rag or "v-drive" in contexto_rag.lower():
+                        print("✅ V-Drive info found in RAG context")
                 except Exception as e:
                     print(f"⚠️ Error getting RAG context: {e}")
             
             # Build context for the AI
+            system_context = self._build_system_context(lead, intent_info, contexto_rag, image_request)
             context_messages = [
-                {"role": "system", "content": self._build_system_context(lead, intent_info, contexto_rag)}
+                {"role": "system", "content": system_context}
             ]
             
             # Add conversation history
@@ -208,6 +273,28 @@ class ConversationService:
             
             respuesta = response.choices[0].message.content.strip()
             
+            # Prepare response with potential image
+            response_data = {
+                'text': respuesta,
+                'type': 'text_only'
+            }
+            
+            # Add image info if requested and available
+            if image_request and image_request.get('wants_image') and image_request.get('modelo'):
+                image_path = image_request.get('image_path')
+                # Check if image file exists
+                full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), image_path)
+                if os.path.exists(full_path):
+                    response_data.update({
+                        'type': 'text_with_image',
+                        'image_path': image_path,
+                        'modelo': image_request['modelo'],
+                        'image_type': image_request.get('image_type', 'exterior')
+                    })
+                    print(f"✅ Imagen encontrada: {image_path}")
+                else:
+                    print(f"⚠️ Imagen no encontrada: {full_path}")
+            
             # Save conversation
             self.save_conversation(telefono, mensaje_usuario, respuesta)
             
@@ -218,13 +305,16 @@ class ConversationService:
                 if telefono_lead:
                     self._update_lead_from_conversation(telefono_lead, mensaje_usuario, intent_info)
             
-            return respuesta
+            return response_data
             
         except Exception as e:
             print(f"❌ Error generating response: {e}")
-            return "Disculpa, tuve un problemita técnico 😅 ¿Me puedes repetir tu mensaje?"
+            return {
+                'text': "Disculpa, tuve un problemita técnico 😅 ¿Me puedes repetir tu mensaje?",
+                'type': 'text_only'
+            }
     
-    def _build_system_context(self, lead: Optional[Dict], intent_info: Dict, contexto_rag: str) -> str:
+    def _build_system_context(self, lead: Optional[Dict], intent_info: Dict, contexto_rag: str, image_request: Dict = None) -> str:
         """Construye el contexto del sistema para OpenAI"""
         context = self.system_prompt + "\n\n"
         
@@ -264,12 +354,26 @@ class ConversationService:
         if contexto_rag:
             context += f"INFORMACIÓN RELEVANTE DE LA BASE DE CONOCIMIENTO:\n{contexto_rag}\n\n"
         
-        context += "INSTRUCCIONES ESPECÍFICAS:\n"
+        # Add image request context if applicable
+        if image_request and image_request.get('wants_image'):
+            context += f"SOLICITUD DE IMAGEN DETECTADA:\n"
+            if image_request.get('modelo'):
+                context += f"- Modelo solicitado: {image_request['modelo']}\n"
+                context += f"- Tipo de imagen: {image_request.get('image_type', 'exterior')}\n"
+                context += f"- Confirma que enviarás la imagen después del mensaje de texto\n"
+            elif image_request.get('needs_clarification'):
+                context += f"- Cliente quiere imagen pero no especificó modelo\n"
+                context += f"- Pregunta qué modelo específico le interesa\n"
+            context += "\n"
+        
+        context += "INSTRUCCIONES CRÍTICAS:\n"
         context += "- Responde como César Arias de manera natural y conversacional\n"
         context += "- Máximo 2 líneas de respuesta\n"
+        context += "- SOLO usa información de la INFORMACIÓN RELEVANTE DE LA BASE DE CONOCIMIENTO mostrada arriba\n"
+        context += "- NUNCA inventes precios, fechas o especificaciones\n"
+        context += "- Si la información no está en el contexto, di 'déjame verificar esa información'\n"
+        context += "- Estamos en JULIO 2025, usa los precios actuales\n"
         context += "- Usa emojis apropiados pero no abuses\n"
-        context += "- Si no tienes información específica, sé honesto\n"
-        context += "- Impulsa hacia la cita presencial cuando sea apropiado\n"
         
         return context
     

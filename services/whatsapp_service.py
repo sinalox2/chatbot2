@@ -77,6 +77,121 @@ class WhatsAppService:
             logging.error(f"❌ Excepción enviando WhatsApp: {e}")
             return {'success': False, 'error': str(e)}
 
+    def enviar_typing_indicator(self, telefono):
+        """Envía indicador de 'escribiendo' por WhatsApp usando el endpoint oficial."""
+        if not self.enabled:
+            logging.error("❌ Error enviando typing indicator: servicio no habilitado.")
+            return {'success': False, 'error': 'Servicio no habilitado'}
+
+        url = f"{self.base_url}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": telefono,
+            "type": "typing_indicator"
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=self.headers)
+            if response.status_code == 200:
+                logging.info(f"✅ Typing indicator enviado a {telefono}")
+                return {'success': True, 'data': response.json()}
+            else:
+                # No es crítico si falla el typing indicator
+                logging.debug(f"⚠️ Typing indicator no enviado a {telefono}: {response.status_code}")
+                return {'success': False, 'status_code': response.status_code, 'error': response.text}
+        except Exception as e:
+            logging.debug(f"⚠️ Error enviando typing indicator: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def mark_as_read(self, message_id):
+        """Marca un mensaje como leído."""
+        if not self.enabled:
+            return {'success': False, 'error': 'Servicio no habilitado'}
+
+        url = f"{self.base_url}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id
+        }
+        
+        try:
+            response = requests.post(url, json=payload, headers=self.headers)
+            if response.status_code == 200:
+                logging.info(f"✅ Mensaje marcado como leído: {message_id}")
+                return {'success': True, 'data': response.json()}
+            else:
+                logging.debug(f"⚠️ No se pudo marcar como leído: {response.status_code}")
+                return {'success': False, 'status_code': response.status_code, 'error': response.text}
+        except Exception as e:
+            logging.debug(f"⚠️ Error marcando como leído: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def enviar_imagen(self, telefono, image_path, caption=None):
+        """Envía una imagen por WhatsApp."""
+        if not self.enabled:
+            logging.error("❌ Error enviando imagen WhatsApp: servicio no habilitado.")
+            return {'success': False, 'error': 'Servicio no habilitado'}
+
+        if not os.path.exists(image_path):
+            logging.error(f"❌ Imagen no encontrada: {image_path}")
+            return {'success': False, 'error': 'Archivo de imagen no encontrado'}
+
+        # URL para envío de media
+        url = f"{self.base_url}/media"
+        
+        try:
+            # Paso 1: Subir la imagen y obtener media_id
+            with open(image_path, 'rb') as image_file:
+                files = {
+                    'file': (os.path.basename(image_path), image_file, 'image/jpeg'),
+                    'messaging_product': (None, 'whatsapp'),
+                    'type': (None, 'image')
+                }
+                headers_upload = {"Authorization": f"Bearer {self.token}"}
+                
+                upload_response = requests.post(url, files=files, headers=headers_upload)
+                
+                if upload_response.status_code != 200:
+                    logging.error(f"❌ Error subiendo imagen: {upload_response.status_code} - {upload_response.text}")
+                    return {'success': False, 'error': f'Error subiendo imagen: {upload_response.text}'}
+                
+                media_data = upload_response.json()
+                media_id = media_data.get('id')
+                
+                if not media_id:
+                    logging.error("❌ No se obtuvo media_id de la respuesta")
+                    return {'success': False, 'error': 'No se obtuvo media_id'}
+
+            # Paso 2: Enviar mensaje con la imagen
+            message_url = f"{self.base_url}/messages"
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": telefono,
+                "type": "image",
+                "image": {
+                    "id": media_id
+                }
+            }
+            
+            # Agregar caption si se proporciona
+            if caption:
+                payload["image"]["caption"] = caption
+            
+            response = requests.post(message_url, json=payload, headers=self.headers)
+            
+            if response.status_code == 200:
+                logging.info(f"✅ Imagen enviada a {telefono}: {os.path.basename(image_path)}")
+                return {'success': True, 'data': response.json(), 'media_id': media_id}
+            else:
+                logging.error(f"❌ Error enviando imagen a {telefono}: {response.status_code} - {response.text}")
+                return {'success': False, 'status_code': response.status_code, 'error': response.json()}
+                
+        except Exception as e:
+            logging.error(f"❌ Excepción enviando imagen WhatsApp: {e}")
+            return {'success': False, 'error': str(e)}
+
     def enviar_mensaje_template(self, telefono, template_name, language_code='es_MX', parameters=None):
         """Envía un mensaje usando una plantilla de WhatsApp."""
         if not self.enabled:
