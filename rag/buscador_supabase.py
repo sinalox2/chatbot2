@@ -25,7 +25,7 @@ class SupabaseRAGSearcher:
             raise ImportError("No se pudieron importar las dependencias necesarias")
         
         self.embeddings = OpenAIEmbeddings()
-        self.tabla = 'rag_chunks'
+        self.tabla = 'chunks'
     
     def buscar_similares(self, query: str, k: int = 3, umbral_similitud: float = 0.7) -> List[Dict[str, Any]]:
         """
@@ -67,8 +67,8 @@ class SupabaseRAGSearcher:
         try:
             # Buscar en chunks de precios que contengan el modelo específico
             response = supabase.table(self.tabla)\
-                .select('contenido, fuente, metadata')\
-                .ilike('fuente', '%precios%')\
+                .select('contenido, documento, metadata')\
+                .ilike('documento', '%precios%')\
                 .ilike('contenido', f'%{modelo}%')\
                 .execute()
             
@@ -78,8 +78,8 @@ class SupabaseRAGSearcher:
             
             # Si no encuentra el modelo específico, buscar en todos los precios
             response_all = supabase.table(self.tabla)\
-                .select('contenido, fuente, metadata')\
-                .ilike('fuente', '%precios%')\
+                .select('contenido, documento, metadata')\
+                .ilike('documento', '%precios%')\
                 .execute()
             
             if response_all.data:
@@ -101,7 +101,7 @@ class SupabaseRAGSearcher:
             # Aquí deberíamos implementar búsqueda vectorial real, pero por ahora búsqueda simple
             
             response = supabase.table(self.tabla)\
-                .select('contenido, fuente, metadata')\
+                .select('contenido, documento, metadata')\
                 .limit(k * 5)\
                 .execute()
             
@@ -138,7 +138,7 @@ class SupabaseRAGSearcher:
             all_results = []
             for termino in terminos_busqueda:
                 response = supabase.table(self.tabla)\
-                    .select('contenido, fuente, metadata')\
+                    .select('contenido, documento, metadata')\
                     .ilike('contenido', f'%{termino}%')\
                     .limit(k * 2)\
                     .execute()
@@ -175,11 +175,11 @@ class SupabaseRAGSearcher:
         contexto_partes = []
         for resultado in resultados:
             contenido = resultado.get('contenido', '')
-            fuente = resultado.get('fuente', 'Desconocido')
+            documento = resultado.get('documento', 'Desconocido')
             
-            # Agregar información de la fuente
+            # Agregar información de la documento
             if contenido:
-                parte = f"[Fuente: {os.path.basename(fuente)}]\n{contenido}"
+                parte = f"[Fuente: {os.path.basename(documento)}]\n{contenido}"
                 contexto_partes.append(parte)
         
         return "\n\n---\n\n".join(contexto_partes)
@@ -196,22 +196,22 @@ class SupabaseRAGSearcher:
             
             total_chunks = count_response.count if count_response.count else 0
             
-            # Obtener fuentes únicas
+            # Obtener documentos únicas
             sources_response = supabase.table(self.tabla)\
-                .select('fuente')\
+                .select('documento')\
                 .execute()
             
-            fuentes = set()
+            documentos = set()
             if sources_response.data:
                 for item in sources_response.data:
-                    fuente = item.get('fuente')
-                    if fuente:
-                        fuentes.add(os.path.basename(fuente))
+                    documento = item.get('documento')
+                    if documento:
+                        documentos.add(os.path.basename(documento))
             
             return {
                 'total_chunks': total_chunks,
-                'fuentes_unicas': len(fuentes),
-                'fuentes': list(fuentes)
+                'documentos_unicas': len(documentos),
+                'documentos': list(documentos)
             }
             
         except Exception as e:
@@ -250,12 +250,12 @@ if __name__ == "__main__":
     stats = searcher.estadisticas()
     print(f"📊 Estadísticas:")
     print(f"   Total chunks: {stats.get('total_chunks', 0)}")
-    print(f"   Fuentes únicas: {stats.get('fuentes_unicas', 0)}")
+    print(f"   Fuentes únicas: {stats.get('documentos_unicas', 0)}")
     
-    if stats.get('fuentes'):
+    if stats.get('documentos'):
         print("   Fuentes disponibles:")
-        for fuente in stats['fuentes']:
-            print(f"     - {fuente}")
+        for documento in stats['documentos']:
+            print(f"     - {documento}")
     
     # Prueba de búsqueda
     query = input("\n🔍 Escribe tu consulta: ")

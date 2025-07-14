@@ -10,14 +10,14 @@ import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from rag.buscador import recuperar_contexto
+    from rag.buscador_supabase import recuperar_contexto
     from supabase_client import supabase
     from services.lead_tracking_service import LeadTrackingService
     from models.lead_tracking import EstadoLead, TemperaturaMercado
     RAG_AVAILABLE = True
-    print("✅ RAG system loaded successfully")
+    print("✅ RAG Supabase system loaded successfully")
 except ImportError as e:
-    print(f"⚠️ RAG system not available: {e}")
+    print(f"⚠️ RAG Supabase system not available: {e}")
     RAG_AVAILABLE = False
     def recuperar_contexto(query, k=3):
         return "Sistema RAG no disponible."

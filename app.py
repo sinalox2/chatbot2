@@ -1280,11 +1280,11 @@ def inicializar_servicios():
     
     print("✅ Servicios inicializados")
 
+# Para Railway/Gunicorn
+inicializar_servicios()
+
 if __name__ == '__main__':
-    # Inicializar servicios
-    inicializar_servicios()
-    
-    # Configuración del servidor
+    # Configuración del servidor para desarrollo local
     port = int(os.environ.get('PORT', 5001))
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
