@@ -117,6 +117,25 @@ def enviar_mensaje_publico(conversation_id: int, mensaje: str):
         logging.error(f"Excepción enviando mensaje público a Chatwoot: {e}")
         return None
 
+def enviar_mensaje_incoming(conversation_id: int, mensaje: str, phone_number: str):
+    """Envía un mensaje como si viniera del cliente (incoming message)."""
+    url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conversation_id}/messages"
+    data = {
+        "content": mensaje,
+        "private": False,
+        "message_type": "incoming",
+        "source_id": f"whatsapp_{phone_number}_{int(__import__('time').time())}"
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        if not response.ok:
+            _handle_request_error(response)
+        logging.info(f"✅ Mensaje del cliente enviado a conversación {conversation_id}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Excepción enviando mensaje del cliente a Chatwoot: {e}")
+        return None
+
 def obtener_conversacion_por_telefono(telefono: str):
     """Obtiene la conversación activa de un contacto por teléfono."""
     contacto = buscar_contacto(telefono)

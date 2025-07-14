@@ -1005,8 +1005,7 @@ def process_chatwoot_message(data):
                         send_whatsapp_response(telefono, texto_respuesta)
                         print(f"✅ Mensaje de texto enviado a {telefono}")
                         
-                        # Enviar también a Chatwoot para que aparezca en la interfaz
-                        send_message_to_chatwoot(telefono, texto_respuesta)
+                        # No enviar a Chatwoot aquí para evitar loop
                         
                         # Enviar imagen si está disponible
                         if respuesta.get('type') == 'text_with_image':
@@ -1018,7 +1017,7 @@ def process_chatwoot_message(data):
                     else:
                         # Compatibilidad con respuesta antigua (string)
                         send_whatsapp_response(telefono, respuesta)
-                        send_message_to_chatwoot(telefono, respuesta)
+                        # No enviar a Chatwoot aquí para evitar loop
                         print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
                 else:
                     print(f"⚠️ No se generó respuesta para {telefono}")
@@ -1097,6 +1096,9 @@ def process_whatsapp_message(message_data):
             # Marcar mensaje como procesado
             mark_message_as_processed(message_id)
             
+            # Primero, enviar el mensaje del cliente a Chatwoot
+            send_customer_message_to_chatwoot(telefono, mensaje_texto, nombre_usuario)
+            
             # Enviar indicador de escritura antes de generar respuesta
             send_typing_indicator(telefono)
             
@@ -1120,8 +1122,7 @@ def process_whatsapp_message(message_data):
                             send_whatsapp_response(telefono, texto_respuesta)
                             print(f"✅ Mensaje de texto enviado a {telefono}")
                             
-                            # Enviar también a Chatwoot para que aparezca en la interfaz
-                            send_message_to_chatwoot(telefono, texto_respuesta)
+                            # No enviar a Chatwoot aquí para evitar loop
                             
                             # Enviar imagen si está disponible
                             if respuesta.get('type') == 'text_with_image':
@@ -1133,7 +1134,7 @@ def process_whatsapp_message(message_data):
                         else:
                             # Compatibilidad con respuesta antigua (string)
                             send_whatsapp_response(telefono, respuesta)
-                            send_message_to_chatwoot(telefono, respuesta)
+                            # No enviar a Chatwoot aquí para evitar loop
                             print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
                     else:
                         print(f"⚠️ No se generó respuesta para {telefono}")
@@ -1288,6 +1289,49 @@ def send_message_to_chatwoot(telefono: str, mensaje: str):
             
     except Exception as e:
         print(f"❌ Error enviando a Chatwoot: {e}")
+        return False
+
+def send_customer_message_to_chatwoot(telefono: str, mensaje: str, nombre_usuario: str = None):
+    """Envía el mensaje del CLIENTE a Chatwoot para que aparezca en la interfaz"""
+    try:
+        from chatwoot_api import obtener_conversacion_por_telefono, buscar_contacto, crear_contacto, crear_conversacion, enviar_mensaje_incoming
+        
+        # Buscar o crear contacto
+        contacto = buscar_contacto(telefono)
+        if not contacto:
+            nombre = nombre_usuario or "Cliente"
+            contacto = crear_contacto(nombre, telefono)
+            if not contacto:
+                print(f"❌ No se pudo crear contacto en Chatwoot para {telefono}")
+                return False
+        
+        # Buscar conversación activa del teléfono
+        conversacion = obtener_conversacion_por_telefono(telefono)
+        
+        if not conversacion:
+            print(f"⚠️ No se encontró conversación activa en Chatwoot para {telefono}, creando una nueva...")
+            # Crear nueva conversación
+            nueva_conversacion = crear_conversacion(contacto['id'])
+            if nueva_conversacion:
+                conversacion = nueva_conversacion
+                print(f"✅ Nueva conversación creada en Chatwoot para {telefono}")
+            else:
+                print(f"❌ No se pudo crear conversación en Chatwoot para {telefono}")
+                return False
+        
+        # Enviar mensaje del cliente como mensaje INCOMING a Chatwoot
+        conversation_id = conversacion.get('id')
+        resultado = enviar_mensaje_incoming(conversation_id, mensaje, telefono)
+        
+        if resultado:
+            print(f"✅ Mensaje del cliente enviado a Chatwoot para {telefono}")
+            return True
+        else:
+            print(f"❌ Error enviando mensaje del cliente a Chatwoot para {telefono}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error enviando mensaje del cliente a Chatwoot: {e}")
         return False
 
 # ============================================================================
