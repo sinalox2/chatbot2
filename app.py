@@ -907,6 +907,61 @@ def test_conversation():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/test-chatwoot-sync', methods=['POST'])
+def test_chatwoot_sync():
+    """Endpoint para probar sincronización con Chatwoot"""
+    try:
+        data = request.json
+        telefono = data.get('telefono', '526647499577')
+        mensaje = data.get('mensaje', 'Mensaje de prueba')
+        nombre = data.get('nombre', 'Cliente Test')
+        
+        print(f"🧪 Probando sincronización con Chatwoot para {telefono}")
+        
+        # Probar envío de mensaje del cliente a Chatwoot
+        resultado = send_customer_message_to_chatwoot(telefono, mensaje, nombre)
+        
+        return jsonify({
+            "status": "success" if resultado else "error",
+            "telefono": telefono,
+            "mensaje": mensaje,
+            "resultado_chatwoot": resultado,
+            "message": "Mensaje enviado a Chatwoot" if resultado else "Error enviando a Chatwoot"
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error en test-chatwoot-sync: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/debug-webhook', methods=['POST'])
+def debug_webhook():
+    """Endpoint para debugear webhooks entrantes"""
+    try:
+        data = request.json
+        headers_dict = dict(request.headers)
+        
+        print(f"🔍 DEBUG WEBHOOK - Headers: {headers_dict}")
+        print(f"🔍 DEBUG WEBHOOK - Data: {json.dumps(data, indent=2)}")
+        
+        # Detectar origen
+        origen = "desconocido"
+        if data.get("object") == "whatsapp_business_account":
+            origen = "WhatsApp Business API"
+        elif data.get("event") == "message_created":
+            origen = "Chatwoot"
+        
+        return jsonify({
+            "status": "success",
+            "origen": origen,
+            "data_received": data,
+            "headers": headers_dict,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error en debug-webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # ============================================================================
 # WEBHOOK PRINCIPAL (mantener funcionalidad original)
 # ============================================================================
@@ -934,20 +989,31 @@ def webhook():
     # Procesamiento de mensajes (POST request)
     try:
         data = request.json
-        print(f"📥 Webhook recibido: {json.dumps(data, indent=2)}")
+        headers_dict = dict(request.headers)
+        
+        print(f"📥 Webhook recibido:")
+        print(f"   Headers: {headers_dict}")
+        print(f"   Data: {json.dumps(data, indent=2)}")
         
         # Detectar el tipo de webhook y procesar apropiadamente
         if data.get("object") == "whatsapp_business_account":
             # Formato de WhatsApp Business API directo
+            print("📱 Procesando webhook de WhatsApp Business API...")
             for entry in data.get("entry", []):
                 for change in entry.get("changes", []):
                     if change.get("field") == "messages":
                         process_whatsapp_message(change.get("value", {}))
                         
-        elif data.get("event") == "message_created" and data.get("message_type") == "incoming":
+        elif data.get("event") == "message_created":
             # Formato de Chatwoot
-            print("📱 Procesando mensaje de Chatwoot...")
-            process_chatwoot_message(data)
+            print(f"📱 Procesando mensaje de Chatwoot - Tipo: {data.get('message_type')}")
+            if data.get("message_type") == "incoming":
+                print("✅ Mensaje incoming de Chatwoot - procesando...")
+                process_chatwoot_message(data)
+            else:
+                print(f"⚠️ Mensaje {data.get('message_type')} de Chatwoot - ignorado")
+        else:
+            print(f"⚠️ Webhook no reconocido: {data.get('object', 'N/A')} - {data.get('event', 'N/A')}")
         
         return jsonify({"status": "success"}), 200
         
