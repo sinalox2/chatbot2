@@ -1285,7 +1285,12 @@ inicializar_servicios()
 
 if __name__ == '__main__':
     # Configuración del servidor para desarrollo local
-    port = int(os.environ.get('PORT', 5001))
+    try:
+        port = int(os.environ.get('PORT', '5001'))
+    except (ValueError, TypeError):
+        print("⚠️ PORT inválida, usando 5001")
+        port = 5001
+    
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
     print(f"🌟 Servidor iniciando en puerto {port}")
