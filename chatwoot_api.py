@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO)
 # Configuración desde variables de entorno
 CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL")
 ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
-BOT_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
-INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
+BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN")
+INBOX_ID = os.getenv("CHATWOOT_INBOX_ID", "35")
 
 # Validar configuración esencial
 if not all([CHATWOOT_BASE_URL, ACCOUNT_ID, BOT_TOKEN, INBOX_ID]):
