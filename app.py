@@ -1393,45 +1393,54 @@ def send_message_to_chatwoot(telefono: str, mensaje: str):
 
 def send_customer_message_to_chatwoot(telefono: str, mensaje: str, nombre_usuario: str = None, message_id: str = None):
     """Envía el mensaje del CLIENTE a Chatwoot para que aparezca en la interfaz"""
+    print(f"➡️ Iniciando send_customer_message_to_chatwoot para {telefono}")
     try:
         from chatwoot_api import obtener_conversacion_por_telefono, buscar_contacto, crear_contacto, crear_conversacion, enviar_mensaje_incoming
         
-        # Buscar o crear contacto
+        # 1. Buscar contacto
+        print("   - Buscando contacto...")
         contacto = buscar_contacto(telefono)
         if not contacto:
+            print(f"   - Contacto no encontrado, creando uno nuevo para {telefono}")
             nombre = nombre_usuario or "Cliente"
             contacto = crear_contacto(nombre, telefono)
             if not contacto:
-                print(f"❌ No se pudo crear contacto en Chatwoot para {telefono}")
+                print(f"   - ❌ FATAL: No se pudo crear contacto en Chatwoot para {telefono}")
                 return False
-        
-        # Buscar conversación activa del teléfono
+        print(f"   - ✅ Contacto ID: {contacto.get('id')}")
+
+        # 2. Buscar conversación
+        print("   - Buscando conversación...")
         conversacion = obtener_conversacion_por_telefono(telefono)
         
         if not conversacion:
-            print(f"⚠️ No se encontró conversación activa en Chatwoot para {telefono}, creando una nueva...")
-            # Crear nueva conversación
+            print(f"   - Conversación no encontrada para {telefono}, creando una nueva...")
             nueva_conversacion = crear_conversacion(contacto['id'])
-            if nueva_conversacion:
+            if nueva_conversacion and 'id' in nueva_conversacion:
                 conversacion = nueva_conversacion
-                print(f"✅ Nueva conversación creada en Chatwoot para {telefono}")
+                print(f"   - ✅ Nueva conversación creada ID: {conversacion.get('id')}")
             else:
-                print(f"❌ No se pudo crear conversación en Chatwoot para {telefono}")
+                print(f"   - ❌ FATAL: No se pudo crear conversación en Chatwoot. Respuesta: {nueva_conversacion}")
                 return False
         
-        # Enviar mensaje del cliente como mensaje INCOMING a Chatwoot
         conversation_id = conversacion.get('id')
+        print(f"   - ✅ Usando conversación ID: {conversation_id}")
+
+        # 3. Enviar mensaje
+        print(f"   - Enviando mensaje a Chatwoot (message_id: {message_id})...")
         resultado = enviar_mensaje_incoming(conversation_id, mensaje, telefono, message_id)
         
         if resultado:
-            print(f"✅ Mensaje del cliente enviado a Chatwoot para {telefono}")
+            print(f"   - ✅ Mensaje del cliente enviado a Chatwoot exitosamente.")
             return True
         else:
-            print(f"❌ Error enviando mensaje del cliente a Chatwoot para {telefono}")
+            print(f"   - ❌ Error enviando mensaje del cliente a Chatwoot.")
             return False
             
     except Exception as e:
-        print(f"❌ Error enviando mensaje del cliente a Chatwoot: {e}")
+        import traceback
+        print(f"❌ EXCEPCIÓN FATAL en send_customer_message_to_chatwoot: {e}")
+        traceback.print_exc()
         return False
 
 # ============================================================================
