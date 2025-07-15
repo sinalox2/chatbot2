@@ -1,14 +1,25 @@
 import requests
 import logging
+import os
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 
-# Configuración
-CHATWOOT_BASE_URL = "https://crm.progreweb.com"
-ACCOUNT_ID = "7"
-BOT_TOKEN = "zqg549VjpbcR6S6vQ9C6CMJY"
-INBOX_ID = 35  # ID del inbox de WhatsApp
+# Configuración desde variables de entorno
+CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL")
+ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
+BOT_TOKEN = os.getenv("CHATWOOT_API_TOKEN")
+INBOX_ID = os.getenv("CHATWOOT_INBOX_ID")
+
+# Validar configuración esencial
+if not all([CHATWOOT_BASE_URL, ACCOUNT_ID, BOT_TOKEN, INBOX_ID]):
+    logging.critical("Faltan variables de entorno críticas para la API de Chatwoot. Por favor, configure CHATWOOT_BASE_URL, CHATWOOT_ACCOUNT_ID, CHATWOOT_API_TOKEN, y CHATWOOT_INBOX_ID.")
+    # En un entorno real, podrías querer que la aplicación no inicie.
+    # raise ValueError("Missing critical Chatwoot environment variables.")
 
 headers = {
     "api_access_token": BOT_TOKEN,

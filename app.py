@@ -969,66 +969,77 @@ def debug_webhook():
 @app.route('/webhook', methods=['GET', 'POST'])
 @app.route('/whatsapp', methods=['GET', 'POST'])
 def webhook():
-    """Webhook para WhatsApp Business API"""
+    """Webhook principal para recibir eventos de WhatsApp y Chatwoot."""
     
-    # Verificación del webhook (GET request)
+    # GET: Verificación del Webhook (usado por WhatsApp y a veces por otros servicios)
     if request.method == 'GET':
-        # Verificar webhook de WhatsApp
+        print("ℹ️ Recibida petición GET para verificación de webhook.")
+        # Lógica de verificación para WhatsApp
         verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "nissan_verify_token")
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
         
         if mode == "subscribe" and token == verify_token:
-            print("✅ Webhook verificado exitosamente")
+            print(f"✅ Webhook de WhatsApp verificado exitosamente. Challenge: {challenge}")
             return challenge, 200
         else:
-            print("❌ Error en verificación de webhook")
+            print(f"❌ Falló la verificación del webhook. Modo: {mode}, Token recibido: {token}")
             return "Verification failed", 403
-    
-    # Procesamiento de mensajes (POST request)
-    try:
-        data = request.json
-        headers_dict = dict(request.headers)
-        
-        print(f"📥 Webhook recibido:")
-        print(f"   Headers: {headers_dict}")
-        print(f"   Data: {json.dumps(data, indent=2)}")
-        
-        # Detectar el tipo de webhook y procesar apropiadamente
-        if data.get("object") == "whatsapp_business_account":
-            # Formato de WhatsApp Business API directo
-            print("📱 Procesando webhook de WhatsApp Business API...")
-            for entry in data.get("entry", []):
-                for change in entry.get("changes", []):
-                    if change.get("field") == "messages":
-                        process_whatsapp_message(change.get("value", {}))
-                        
-        elif data.get("event") == "message_created":
-            # Formato de Chatwoot
-            message_type = data.get("message_type")
-            sender_type = data.get("sender", {}).get("type", "unknown")
-            content = data.get("content", "")
+
+    # POST: Procesamiento de eventos (mensajes, etc.)
+    if request.method == 'POST':
+        headers = dict(request.headers)
+        raw_data = request.get_data(as_text=True)
+        print("📥 Recibida petición POST en /webhook.")
+        print(f"   - Headers: {json.dumps(headers, indent=2)}")
+        print(f"   - Raw Body: {raw_data}")
+
+        try:
+            data = request.get_json()
+            print(f"   - JSON Body: {json.dumps(data, indent=2)}")
+        except Exception as e:
+            print(f"❌ Error al parsear JSON del body: {e}")
+            return jsonify({"status": "error", "message": "Invalid JSON"}), 400
+
+        try:
+            # Identificar el origen del webhook y procesar
+            if data.get("object") == "whatsapp_business_account":
+                print("➡️ Origen detectado: WhatsApp Business API.")
+                for entry in data.get("entry", []):
+                    for change in entry.get("changes", []):
+                        if change.get("field") == "messages":
+                            process_whatsapp_message(change.get("value", {}))
             
-            print(f"📱 Chatwoot webhook - Tipo: {message_type}, Sender: {sender_type}")
-            print(f"   📝 Contenido: {content[:100]}...")
+            elif data.get("event") == "message_created":
+                print("➡️ Origen detectado: Chatwoot.")
+                message_type = data.get("message_type")
+                sender_type = data.get("sender", {}).get("type", "unknown")
+                
+                print(f"   - Evento de Chatwoot: {data.get('event')}")
+                print(f"   - Tipo de Mensaje: {message_type}")
+                print(f"   - Tipo de Remitente: {sender_type}")
+
+                if message_type == "incoming":
+                    print("✅ Procesando mensaje 'incoming' de Chatwoot...")
+                    process_chatwoot_message(data)
+                else:
+                    print(f"⚠️ Mensaje de Chatwoot de tipo '{message_type}' ignorado.")
             
-            if message_type == "incoming":
-                print("✅ Mensaje incoming de Chatwoot - procesando...")
-                process_chatwoot_message(data)
             else:
-                print(f"⚠️ Mensaje {message_type} de Chatwoot - ignorado")
-        else:
-            print(f"⚠️ Webhook no reconocido:")
-            print(f"   Object: {data.get('object', 'N/A')}")
-            print(f"   Event: {data.get('event', 'N/A')}")
-            print(f"   Keys: {list(data.keys())}")
-        
-        return jsonify({"status": "success"}), 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+                print("⚠️ Webhook no reconocido. No coincide con WhatsApp ni Chatwoot.")
+                print(f"   - Object: {data.get('object', 'N/A')}, Event: {data.get('event', 'N/A')}")
+
+            return jsonify({"status": "success"}), 200
+
+        except Exception as e:
+            print(f"❌ Error fatal durante el procesamiento del webhook: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"status": "error", "message": str(e)}), 500
+    
+    # Manejar otros métodos HTTP si es necesario
+    return "Method Not Allowed", 405
 
 def process_chatwoot_message(data):
     """Procesa mensajes entrantes de Chatwoot"""
