@@ -1197,7 +1197,7 @@ def process_whatsapp_message(message_data):
             mark_message_as_processed(message_id)
             
             # Primero, enviar el mensaje del cliente a Chatwoot
-            send_customer_message_to_chatwoot(telefono, mensaje_texto, nombre_usuario)
+            send_customer_message_to_chatwoot(telefono, mensaje_texto, nombre_usuario, message_id)
             
             # Enviar indicador de escritura antes de generar respuesta
             send_typing_indicator(telefono)
@@ -1391,7 +1391,7 @@ def send_message_to_chatwoot(telefono: str, mensaje: str):
         print(f"❌ Error enviando a Chatwoot: {e}")
         return False
 
-def send_customer_message_to_chatwoot(telefono: str, mensaje: str, nombre_usuario: str = None):
+def send_customer_message_to_chatwoot(telefono: str, mensaje: str, nombre_usuario: str = None, message_id: str = None):
     """Envía el mensaje del CLIENTE a Chatwoot para que aparezca en la interfaz"""
     try:
         from chatwoot_api import obtener_conversacion_por_telefono, buscar_contacto, crear_contacto, crear_conversacion, enviar_mensaje_incoming
@@ -1421,7 +1421,7 @@ def send_customer_message_to_chatwoot(telefono: str, mensaje: str, nombre_usuari
         
         # Enviar mensaje del cliente como mensaje INCOMING a Chatwoot
         conversation_id = conversacion.get('id')
-        resultado = enviar_mensaje_incoming(conversation_id, mensaje, telefono)
+        resultado = enviar_mensaje_incoming(conversation_id, mensaje, telefono, message_id)
         
         if resultado:
             print(f"✅ Mensaje del cliente enviado a Chatwoot para {telefono}")

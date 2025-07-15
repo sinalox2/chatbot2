@@ -128,14 +128,21 @@ def enviar_mensaje_publico(conversation_id: int, mensaje: str):
         logging.error(f"Excepción enviando mensaje público a Chatwoot: {e}")
         return None
 
-def enviar_mensaje_incoming(conversation_id: int, mensaje: str, phone_number: str):
+def enviar_mensaje_incoming(conversation_id: int, mensaje: str, phone_number: str, message_id: str = None):
     """Envía un mensaje como si viniera del cliente (incoming message)."""
     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conversation_id}/messages"
+    
+    # Usar el message_id de WhatsApp si está disponible, si no, generar uno
+    if message_id:
+        source_id = message_id
+    else:
+        source_id = f"whatsapp_{phone_number}_{int(__import__('time').time())}"
+
     data = {
         "content": mensaje,
         "private": False,
         "message_type": "incoming",
-        "source_id": f"whatsapp_{phone_number}_{int(__import__('time').time())}"
+        "source_id": source_id
     }
     try:
         response = requests.post(url, headers=headers, json=data, timeout=10)
