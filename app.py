@@ -1091,7 +1091,12 @@ def process_chatwoot_message(data):
                         send_whatsapp_response(telefono, texto_respuesta)
                         print(f"✅ Mensaje de texto enviado a {telefono}")
                         
-                        # No enviar a Chatwoot aquí para evitar loop
+                        # Enviar respuesta del chatbot a Chatwoot
+                        try:
+                            from chatwoot_api import send_message_to_chatwoot
+                            send_message_to_chatwoot(telefono, texto_respuesta)
+                        except Exception as e:
+                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
                         
                         # Enviar imagen si está disponible
                         if respuesta.get('type') == 'text_with_image':
@@ -1103,8 +1108,14 @@ def process_chatwoot_message(data):
                     else:
                         # Compatibilidad con respuesta antigua (string)
                         send_whatsapp_response(telefono, respuesta)
-                        # No enviar a Chatwoot aquí para evitar loop
                         print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
+                        
+                        # Enviar respuesta del chatbot a Chatwoot
+                        try:
+                            from chatwoot_api import send_message_to_chatwoot
+                            send_message_to_chatwoot(telefono, respuesta)
+                        except Exception as e:
+                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
                 else:
                     print(f"⚠️ No se generó respuesta para {telefono}")
                     
@@ -1113,10 +1124,22 @@ def process_chatwoot_message(data):
                 # Respuesta de fallback
                 respuesta_fallback = "Hola! 😅 Tuve un problemita técnico, ¿me puedes escribir en un ratito?"
                 send_whatsapp_response(telefono, respuesta_fallback)
+                # Enviar respuesta de fallback a Chatwoot
+                try:
+                    from chatwoot_api import send_message_to_chatwoot
+                    send_message_to_chatwoot(telefono, respuesta_fallback)
+                except Exception as e:
+                    print(f"⚠️ Error enviando respuesta de fallback a Chatwoot: {e}")
         else:
             # Respuesta básica si el servicio de conversación no está disponible
             respuesta_basica = f"¡Hola {nombre_usuario}! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"
             send_whatsapp_response(telefono, respuesta_basica)
+            # Enviar respuesta básica a Chatwoot
+            try:
+                from chatwoot_api import send_message_to_chatwoot
+                send_message_to_chatwoot(telefono, respuesta_basica)
+            except Exception as e:
+                print(f"⚠️ Error enviando respuesta básica a Chatwoot: {e}")
             
     except Exception as e:
         print(f"❌ Error procesando mensaje de Chatwoot: {e}")
@@ -1248,6 +1271,12 @@ def process_whatsapp_message(message_data):
                 # Respuesta básica si el servicio de conversación no está disponible
                 respuesta_basica = f"¡Hola! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"
                 send_whatsapp_response(telefono, respuesta_basica)
+                # Enviar respuesta básica a Chatwoot
+                try:
+                    from chatwoot_api import send_message_to_chatwoot
+                    send_message_to_chatwoot(telefono, respuesta_basica)
+                except Exception as e:
+                    print(f"⚠️ Error enviando respuesta básica a Chatwoot: {e}")
             
     except Exception as e:
         print(f"❌ Error procesando mensaje de WhatsApp: {e}")

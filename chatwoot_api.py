@@ -185,3 +185,48 @@ def obtener_conversacion_por_telefono(telefono: str):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error obteniendo conversación por teléfono: {e}")
         return None
+
+def send_message_to_chatwoot(telefono: str, mensaje: str):
+    """
+    Envía la respuesta del chatbot a Chatwoot como mensaje público.
+    
+    Args:
+        telefono (str): Número de teléfono del contacto
+        mensaje (str): Mensaje a enviar
+        
+    Returns:
+        bool: True si el mensaje se envió exitosamente, False en caso contrario
+    """
+    try:
+        # Buscar o crear contacto
+        contacto = buscar_contacto(telefono)
+        if not contacto:
+            logging.info(f"Contacto {telefono} no encontrado, creando nuevo contacto...")
+            contacto = crear_contacto("Cliente WhatsApp", telefono)
+            if not contacto:
+                logging.error(f"No se pudo crear contacto para {telefono}")
+                return False
+        
+        # Buscar conversación existente
+        conversacion = obtener_conversacion_por_telefono(telefono)
+        if not conversacion:
+            logging.info(f"Conversación no encontrada para {telefono}, creando nueva...")
+            conversacion = crear_conversacion(contacto['id'])
+            if not conversacion:
+                logging.error(f"No se pudo crear conversación para {telefono}")
+                return False
+        
+        # Enviar mensaje público (como respuesta del agente/bot)
+        conversation_id = conversacion.get('id')
+        resultado = enviar_mensaje_publico(conversation_id, mensaje)
+        
+        if resultado:
+            logging.info(f"✅ Respuesta del chatbot enviada a Chatwoot para {telefono}")
+            return True
+        else:
+            logging.error(f"❌ Error enviando respuesta del chatbot a Chatwoot para {telefono}")
+            return False
+            
+    except Exception as e:
+        logging.error(f"❌ Error en send_message_to_chatwoot para {telefono}: {e}")
+        return False
