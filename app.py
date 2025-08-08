@@ -1009,6 +1009,7 @@ def webhook():
                 for entry in data.get("entry", []):
                     for change in entry.get("changes", []):
                         if change.get("field") == "messages":
+                            print("🔄 Ejecutando process_whatsapp_message() desde WhatsApp API")
                             process_whatsapp_message(change.get("value", {}))
             
             elif data.get("event") == "message_created":
@@ -1020,11 +1021,22 @@ def webhook():
                 print(f"   - Tipo de Mensaje: {message_type}")
                 print(f"   - Tipo de Remitente: {sender_type}")
 
-                if message_type == "incoming":
-                    print("✅ Procesando mensaje 'incoming' de Chatwoot...")
+                # Filtrar mensajes del bot/agente para evitar loops
+                sender_name = data.get("sender", {}).get("name", "")
+                sender_id = data.get("sender", {}).get("id", 0)
+                
+                # Solo filtrar si es claramente un agente/bot, no por nombre del cliente
+                is_bot_message = (
+                    sender_type in ["agent_bot", "agent"] or
+                    sender_id == 34  # ID del agente César según el JSON
+                )
+                
+                if message_type == "incoming" and not is_bot_message:
+                    print("✅ Procesando mensaje 'incoming' de cliente...")
+                    print("🔄 Ejecutando process_chatwoot_message() desde Chatwoot")
                     process_chatwoot_message(data)
                 else:
-                    print(f"⚠️ Mensaje de Chatwoot de tipo '{message_type}' ignorado.")
+                    print(f"⚠️ Mensaje de Chatwoot ignorado - Tipo: {message_type}, Sender: {sender_type}, ID: {sender_id}, Nombre: {sender_name}")
             
             else:
                 print("⚠️ Webhook no reconocido. No coincide con WhatsApp ni Chatwoot.")
@@ -1091,13 +1103,14 @@ def process_chatwoot_message(data):
                         send_whatsapp_response(telefono, texto_respuesta)
                         print(f"✅ Mensaje de texto enviado a {telefono}")
                         
-                        # Enviar respuesta del chatbot a Chatwoot
+                        # Enviar respuesta del bot a Chatwoot (para que aparezca en la conversación)
                         try:
                             from chatwoot_api import send_message_to_chatwoot
-                            send_message_to_chatwoot(telefono, texto_respuesta)
+                            print(f"🔄 Enviando respuesta del bot a Chatwoot: {texto_respuesta[:50]}...")
+                            resultado = send_message_to_chatwoot(telefono, texto_respuesta)
+                            print(f"📨 Resultado Chatwoot: {resultado}")
                         except Exception as e:
-                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
-                        
+                            print(f"⚠️ Error enviando respuesta del bot a Chatwoot: {e}")
                         # Enviar imagen si está disponible
                         if respuesta.get('type') == 'text_with_image':
                             image_path = respuesta.get('image_path')
@@ -1110,12 +1123,14 @@ def process_chatwoot_message(data):
                         send_whatsapp_response(telefono, respuesta)
                         print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
                         
-                        # Enviar respuesta del chatbot a Chatwoot
+                        # Enviar respuesta del bot a Chatwoot (para que aparezca en la conversación)
                         try:
                             from chatwoot_api import send_message_to_chatwoot
-                            send_message_to_chatwoot(telefono, respuesta)
+                            print(f"🔄 Enviando respuesta del bot a Chatwoot: {respuesta[:50]}...")
+                            resultado = send_message_to_chatwoot(telefono, respuesta)
+                            print(f"📨 Resultado Chatwoot: {resultado}")
                         except Exception as e:
-                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
+                            print(f"⚠️ Error enviando respuesta del bot a Chatwoot: {e}")
                 else:
                     print(f"⚠️ No se generó respuesta para {telefono}")
                     
@@ -1124,20 +1139,26 @@ def process_chatwoot_message(data):
                 # Respuesta de fallback
                 respuesta_fallback = "Hola! 😅 Tuve un problemita técnico, ¿me puedes escribir en un ratito?"
                 send_whatsapp_response(telefono, respuesta_fallback)
+                
                 # Enviar respuesta de fallback a Chatwoot
                 try:
                     from chatwoot_api import send_message_to_chatwoot
-                    send_message_to_chatwoot(telefono, respuesta_fallback)
+                    print(f"🔄 Enviando fallback a Chatwoot: {respuesta_fallback[:50]}...")
+                    resultado = send_message_to_chatwoot(telefono, respuesta_fallback)
+                    print(f"📨 Resultado Chatwoot: {resultado}")
                 except Exception as e:
-                    print(f"⚠️ Error enviando respuesta de fallback a Chatwoot: {e}")
+                    print(f"⚠️ Error enviando fallback a Chatwoot: {e}")
         else:
             # Respuesta básica si el servicio de conversación no está disponible
             respuesta_basica = f"¡Hola {nombre_usuario}! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"
             send_whatsapp_response(telefono, respuesta_basica)
+            
             # Enviar respuesta básica a Chatwoot
             try:
                 from chatwoot_api import send_message_to_chatwoot
-                send_message_to_chatwoot(telefono, respuesta_basica)
+                print(f"🔄 Enviando respuesta básica a Chatwoot: {respuesta_basica[:50]}...")
+                resultado = send_message_to_chatwoot(telefono, respuesta_basica)
+                print(f"📨 Resultado Chatwoot: {resultado}")
             except Exception as e:
                 print(f"⚠️ Error enviando respuesta básica a Chatwoot: {e}")
             
@@ -1245,7 +1266,16 @@ def process_whatsapp_message(message_data):
                             send_whatsapp_response(telefono, texto_respuesta)
                             print(f"✅ Mensaje de texto enviado a {telefono}")
                             
-                            # No enviar a Chatwoot aquí para evitar loop
+                            # Enviar respuesta del chatbot a Chatwoot
+                            try:
+                                from chatwoot_api import send_message_to_chatwoot
+                                print(f"🔄 Intentando enviar a Chatwoot: {texto_respuesta[:50]}...")
+                                resultado = send_message_to_chatwoot(telefono, texto_respuesta)
+                                print(f"📨 Resultado Chatwoot: {resultado}")
+                            except Exception as e:
+                                print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
+                                import traceback
+                                print(f"Stack trace: {traceback.format_exc()}")
                             
                             # Enviar imagen si está disponible
                             if respuesta.get('type') == 'text_with_image':
@@ -1257,8 +1287,18 @@ def process_whatsapp_message(message_data):
                         else:
                             # Compatibilidad con respuesta antigua (string)
                             send_whatsapp_response(telefono, respuesta)
-                            # No enviar a Chatwoot aquí para evitar loop
                             print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
+                            
+                            # Enviar respuesta del chatbot a Chatwoot
+                            try:
+                                from chatwoot_api import send_message_to_chatwoot
+                                print(f"🔄 Intentando enviar a Chatwoot: {respuesta[:50]}...")
+                                resultado = send_message_to_chatwoot(telefono, respuesta)
+                                print(f"📨 Resultado Chatwoot: {resultado}")
+                            except Exception as e:
+                                print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
+                                import traceback
+                                print(f"Stack trace: {traceback.format_exc()}")
                     else:
                         print(f"⚠️ No se generó respuesta para {telefono}")
                         
@@ -1267,6 +1307,12 @@ def process_whatsapp_message(message_data):
                     # Respuesta de fallback
                     respuesta_fallback = "Hola! 😅 Tuve un problemita técnico, ¿me puedes escribir en un ratito?"
                     send_whatsapp_response(telefono, respuesta_fallback)
+                    # Enviar respuesta de fallback a Chatwoot
+                    try:
+                        from chatwoot_api import send_message_to_chatwoot
+                        send_message_to_chatwoot(telefono, respuesta_fallback)
+                    except Exception as e:
+                        print(f"⚠️ Error enviando respuesta de fallback a Chatwoot: {e}")
             else:
                 # Respuesta básica si el servicio de conversación no está disponible
                 respuesta_basica = f"¡Hola! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"

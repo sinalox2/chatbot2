@@ -10,9 +10,9 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 # Configuración desde variables de entorno
-CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL")
-ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID")
-BOT_TOKEN = os.getenv("CHATWOOT_BOT_TOKEN")
+CHATWOOT_BASE_URL = os.getenv("CHATWOOT_BASE_URL", "https://chat.progreweb.com")
+ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "4")
+BOT_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "jCRjFAbN4RtUr8tKGT4vsA5L")
 INBOX_ID = os.getenv("CHATWOOT_INBOX_ID", "35")
 
 # Validar configuración esencial
@@ -160,7 +160,10 @@ def obtener_conversacion_por_telefono(telefono: str):
     if not contacto:
         return None
     
-    # Buscar conversaciones del contacto
+    contact_id = contacto.get('id')
+    logging.info(f"Buscando conversaciones para contact_id: {contact_id}")
+    
+    # Buscar conversaciones del contacto específico
     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations"
     params = {
         'inbox_id': INBOX_ID,
@@ -175,11 +178,29 @@ def obtener_conversacion_por_telefono(telefono: str):
         data = response.json()
         conversations = data.get('data', {}).get('payload', [])
         
-        # Buscar conversación del contacto específico
+        # Buscar conversación del contacto específico por contact_id
         for conv in conversations:
-            if conv.get('meta', {}).get('sender', {}).get('phone_number') == telefono:
-                logging.info(f"Conversación encontrada para {telefono}: {conv['id']}")
+            conv_contact_id = conv.get('meta', {}).get('sender', {}).get('id')
+            if conv_contact_id == contact_id:
+                logging.info(f"Conversación encontrada para {telefono} (contact_id: {contact_id}): {conv['id']}")
                 return conv
+        
+        # Si no se encuentra conversación abierta, buscar cualquier conversación del contacto
+        logging.info(f"No hay conversación abierta, buscando cualquier conversación para contact_id: {contact_id}")
+        
+        # Buscar todas las conversaciones (no solo abiertas)
+        params_all = {'inbox_id': INBOX_ID}
+        response_all = requests.get(url, headers=headers, params=params_all, timeout=10)
+        
+        if response_all.ok:
+            data_all = response_all.json()
+            conversations_all = data_all.get('data', {}).get('payload', [])
+            
+            for conv in conversations_all:
+                conv_contact_id = conv.get('meta', {}).get('sender', {}).get('id')
+                if conv_contact_id == contact_id:
+                    logging.info(f"Conversación existente encontrada para {telefono}: {conv['id']} (status: {conv.get('status')})")
+                    return conv
                 
         return None
     except requests.exceptions.RequestException as e:
@@ -216,9 +237,9 @@ def send_message_to_chatwoot(telefono: str, mensaje: str):
                 logging.error(f"No se pudo crear conversación para {telefono}")
                 return False
         
-        # Enviar mensaje público (como respuesta del agente/bot)
+        # Enviar mensaje privado (nota interna) para evitar reenvío a WhatsApp
         conversation_id = conversacion.get('id')
-        resultado = enviar_mensaje_publico(conversation_id, mensaje)
+        resultado = crear_mensaje_privado(conversation_id, f"🤖 Bot: {mensaje}")
         
         if resultado:
             logging.info(f"✅ Respuesta del chatbot enviada a Chatwoot para {telefono}")

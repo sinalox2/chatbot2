@@ -15,9 +15,7 @@ try:
     from services.lead_tracking_service import LeadTrackingService
     from models.lead_tracking import EstadoLead, TemperaturaMercado
     RAG_AVAILABLE = True
-    print("✅ RAG Supabase system loaded successfully")
 except ImportError as e:
-    print(f"⚠️ RAG Supabase system not available: {e}")
     RAG_AVAILABLE = False
     def recuperar_contexto(query, k=3):
         return "Sistema RAG no disponible."
@@ -37,9 +35,8 @@ class ConversationService:
         if api_key:
             openai.api_key = api_key
             self.client = openai
-            print("✅ OpenAI client configured")
         else:
-            print("⚠️ OpenAI API key not found in environment variables")
+            print("⚠️ OpenAI API key not found")
     
     def _load_system_prompt(self) -> str:
         """Carga el prompt del sistema desde el archivo"""
@@ -54,14 +51,19 @@ class ConversationService:
                     return content[start:end].strip()
                 return content
         except Exception as e:
-            print(f"⚠️ Error loading system prompt: {e}")
             return "Eres César Arias, asesor de ventas de Nissan Tijuana. Responde de manera amigable y profesional."
     
-    def get_conversation_history(self, telefono: str, limit: int = 10) -> List[Dict]:
-        """Obtiene el historial de conversación de un cliente"""
+    def get_conversation_history(self, telefono: str, limit: int = 6) -> List[Dict]:
+        """
+        Obtiene el historial de conversación de un cliente
+        OPTIMIZADO: Limitado a últimos 6 mensajes (3 turnos completos)
+        """
         try:
             if not supabase:
                 return []
+            
+            # Limitar a máximo 6 mensajes para optimizar tokens
+            limit = min(limit, 6)
             
             response = supabase.table('historial_conversaciones')\
                 .select('*')\
@@ -72,7 +74,6 @@ class ConversationService:
             
             return response.data or []
         except Exception as e:
-            print(f"❌ Error getting conversation history: {e}")
             return []
     
     def save_conversation(self, telefono: str, mensaje_usuario: str, respuesta_bot: str):
@@ -90,7 +91,6 @@ class ConversationService:
             
             return True
         except Exception as e:
-            print(f"❌ Error saving conversation: {e}")
             return False
     
     def get_or_create_lead(self, telefono: str, nombre: Optional[str] = None) -> Optional[Dict]:
@@ -120,7 +120,6 @@ class ConversationService:
             
             return lead
         except Exception as e:
-            print(f"❌ Error managing lead: {e}")
             return None
     
     def detect_image_request(self, mensaje: str) -> Dict:
@@ -224,8 +223,8 @@ class ConversationService:
             if not self.client:
                 return "Disculpa, tengo problemas técnicos. ¿Puedes intentar más tarde? 😅"
             
-            # Get conversation history
-            historial = self.get_conversation_history(telefono, limit=5)
+            # Get conversation history (limitado a 3 turnos = 6 mensajes)
+            historial = self.get_conversation_history(telefono, limit=6)
             
             # Get or create lead
             lead = self.get_or_create_lead(telefono, nombre_usuario)
@@ -236,16 +235,16 @@ class ConversationService:
             # Detect image requests
             image_request = self.detect_image_request(mensaje_usuario)
             
-            # Get relevant context from RAG if available
+            # Get relevant context from RAG if available (limitado a 2 chunks)
             contexto_rag = ""
+            usa_rag = False
             if RAG_AVAILABLE:
                 try:
-                    contexto_rag = recuperar_contexto(mensaje_usuario, k=5)
-                    print(f"🔍 RAG Context found: {len(contexto_rag)} characters")
-                    if "V‑Drive" in contexto_rag or "v-drive" in contexto_rag.lower():
-                        print("✅ V-Drive info found in RAG context")
+                    contexto_rag = recuperar_contexto(mensaje_usuario, k=2)  # Máximo 2 chunks
+                    if contexto_rag and "No se encontró" not in contexto_rag:
+                        usa_rag = True
                 except Exception as e:
-                    print(f"⚠️ Error getting RAG context: {e}")
+                    usa_rag = False
             
             # Build context for the AI
             system_context = self._build_system_context(lead, intent_info, contexto_rag, image_request)
@@ -253,10 +252,14 @@ class ConversationService:
                 {"role": "system", "content": system_context}
             ]
             
-            # Add conversation history
-            for item in reversed(historial[:3]):  # Last 3 messages
+            # Add conversation history (máximo 3 turnos = 6 mensajes)
+            historial_procesado = 0
+            for item in reversed(historial):
+                if historial_procesado >= 6:  # Máximo 6 mensajes (3 turnos)
+                    break
                 context_messages.append({"role": "user", "content": item.get('mensaje', '')})
                 context_messages.append({"role": "assistant", "content": item.get('respuesta', '')})
+                historial_procesado += 2
             
             # Add current message
             context_messages.append({"role": "user", "content": mensaje_usuario})
@@ -265,13 +268,17 @@ class ConversationService:
             response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=context_messages,
-                max_tokens=150,  # Keep responses short and conversational
-                temperature=0.7,
-                presence_penalty=0.1,
-                frequency_penalty=0.1
+                max_tokens=200,  # Reducido para respuestas más concisas
+                temperature=0.6,  # Reducido para respuestas más consistentes
+                presence_penalty=0.2,  # Aumentado para evitar repetición
+                frequency_penalty=0.2  # Aumentado para mayor variedad
             )
             
             respuesta = response.choices[0].message.content.strip()
+            
+            # Log token usage and conversation info
+            tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
+            print(f"📞 {telefono} | 📨 {mensaje_usuario[:50]}... | 📤 {respuesta[:50]}... | 🔍 RAG: {'✅' if usa_rag else '❌'} | 🎫 Tokens: {tokens_used}")
             
             # Prepare response with potential image
             response_data = {
@@ -291,9 +298,6 @@ class ConversationService:
                         'modelo': image_request['modelo'],
                         'image_type': image_request.get('image_type', 'exterior')
                     })
-                    print(f"✅ Imagen encontrada: {image_path}")
-                else:
-                    print(f"⚠️ Imagen no encontrada: {full_path}")
             
             # Save conversation
             self.save_conversation(telefono, mensaje_usuario, respuesta)
@@ -308,7 +312,7 @@ class ConversationService:
             return response_data
             
         except Exception as e:
-            print(f"❌ Error generating response: {e}")
+            print(f"❌ Error {telefono}: {str(e)[:100]}")
             return {
                 'text': "Disculpa, tuve un problemita técnico 😅 ¿Me puedes repetir tu mensaje?",
                 'type': 'text_only'
@@ -366,14 +370,11 @@ class ConversationService:
                 context += f"- Pregunta qué modelo específico le interesa\n"
             context += "\n"
         
-        context += "INSTRUCCIONES CRÍTICAS:\n"
-        context += "- Responde como César Arias de manera natural y conversacional\n"
-        context += "- Máximo 2 líneas de respuesta\n"
-        context += "- SOLO usa información de la INFORMACIÓN RELEVANTE DE LA BASE DE CONOCIMIENTO mostrada arriba\n"
-        context += "- NUNCA inventes precios, fechas o especificaciones\n"
-        context += "- Si la información no está en el contexto, di 'déjame verificar esa información'\n"
-        context += "- Estamos en JULIO 2025, usa los precios actuales\n"
-        context += "- Usa emojis apropiados pero no abuses\n"
+        context += "INSTRUCCIONES:\n"
+        context += "- Respuesta: 1-3 líneas máximo\n"
+        context += "- SOLO usa información del contexto RAG\n"
+        context += "- Si no sabes algo: 'déjame verificar esa información'\n"
+        context += "- Usa emojis moderadamente\n"
         
         return context
     
@@ -406,7 +407,7 @@ class ConversationService:
             self.lead_service.guardar_lead(lead)
             
         except Exception as e:
-            print(f"❌ Error updating lead: {e}")
+            pass
 
 # Global instance
 conversation_service = ConversationService()

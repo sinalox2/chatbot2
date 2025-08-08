@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from supabase_client import supabase
     from langchain_community.embeddings import OpenAIEmbeddings
+    from services.embedding_cache import get_cached_embedding
     from dotenv import load_dotenv
     IMPORTS_OK = True
 except ImportError as e:
@@ -49,8 +50,11 @@ class SupabaseRAGSearcher:
                 # Búsqueda específica por modelo en precios
                 return self._buscar_por_modelo(modelo_mencionado, k)
             
-            # Generar embedding de la consulta
-            query_embedding = self.embeddings.embed_query(query)
+            # Generar embedding de la consulta usando caché
+            query_embedding = get_cached_embedding(query)
+            if not query_embedding:
+                print("❌ Error generando embedding")
+                return self._buscar_manual_simple(query, k)
             
             # Búsqueda vectorial directa usando operador de similitud
             return self._buscar_manual(query_embedding, k, umbral_similitud)
@@ -165,24 +169,46 @@ class SupabaseRAGSearcher:
     def recuperar_contexto(self, query: str, k: int = 3) -> str:
         """
         Recupera contexto relevante para una consulta (compatible con buscador.py)
+        OPTIMIZADO: Máximo 2 chunks y 600 palabras
         """
+        # Limitar a máximo 2 chunks para optimizar tokens
+        k = min(k, 2)
+        
         resultados = self.buscar_similares(query, k)
         
         if not resultados:
             return "No se encontró información relevante."
         
-        # Combinar contenido de los resultados
+        # Combinar contenido de los resultados con límite de palabras
         contexto_partes = []
+        total_palabras = 0
+        max_palabras = 600  # Límite estricto de palabras
+        
         for resultado in resultados:
             contenido = resultado.get('contenido', '')
             documento = resultado.get('documento', 'Desconocido')
             
-            # Agregar información de la documento
-            if contenido:
-                parte = f"[Fuente: {os.path.basename(documento)}]\n{contenido}"
+            if contenido and total_palabras < max_palabras:
+                # Contar palabras en el contenido actual
+                palabras_contenido = len(contenido.split())
+                
+                # Truncar si excede el límite
+                if total_palabras + palabras_contenido > max_palabras:
+                    palabras_restantes = max_palabras - total_palabras
+                    contenido_truncado = ' '.join(contenido.split()[:palabras_restantes])
+                    contenido = contenido_truncado + "..."
+                
+                parte = f"[{os.path.basename(documento)}] {contenido}"
                 contexto_partes.append(parte)
+                total_palabras += len(parte.split())
+                
+                if total_palabras >= max_palabras:
+                    break
         
-        return "\n\n---\n\n".join(contexto_partes)
+        contexto_final = "\n\n".join(contexto_partes)
+        print(f"📝 Contexto RAG: {len(contexto_final.split())} palabras, {len(contexto_partes)} chunks")
+        
+        return contexto_final
     
     def estadisticas(self) -> Dict[str, Any]:
         """
