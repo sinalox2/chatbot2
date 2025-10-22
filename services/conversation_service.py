@@ -41,31 +41,33 @@ class ConversationService:
             print("⚠️ OpenAI API key not found")
     
     def _load_system_prompt(self) -> str:
-        """Carga el prompt del sistema desde el archivo"""
+        """Carga el prompt del sistema desde el archivo .md"""
         try:
             prompt_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt_sistema_nissan.md')
             with open(prompt_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-                # Extract just the prompt text, remove the function definition
+                # Si es un archivo markdown, extraer solo el contenido del prompt
                 if 'return """' in content:
                     start = content.find('return """') + len('return """')
                     end = content.rfind('"""')
                     return content[start:end].strip()
-                return content
+                # Si es markdown puro, usar todo el contenido
+                return content.strip()
         except Exception as e:
+            print(f"⚠️ Error cargando prompt desde archivo: {e}")
             return "Eres César Arias, asesor de ventas de Nissan Tijuana. Responde de manera amigable y profesional."
     
-    def get_conversation_history(self, telefono: str, limit: int = 6) -> List[Dict]:
+    def get_conversation_history(self, telefono: str, limit: int = 4) -> List[Dict]:
         """
         Obtiene el historial de conversación de un cliente
-        OPTIMIZADO: Limitado a últimos 6 mensajes (3 turnos completos)
+        OPTIMIZADO: Limitado a últimos 4 mensajes (2 turnos completos) para reducir tokens
         """
         try:
             if not supabase:
                 return []
             
-            # Limitar a máximo 6 mensajes para optimizar tokens
-            limit = min(limit, 6)
+            # Limitar a máximo 4 mensajes para optimizar tokens (reducido de 6)
+            limit = min(limit, 4)
             
             response = supabase.table('historial_conversaciones')\
                 .select('*')\
@@ -297,8 +299,8 @@ class ConversationService:
             if not self.client:
                 return "Disculpa, tengo problemas técnicos. ¿Puedes intentar más tarde? 😅"
             
-            # Get conversation history (limitado a 3 turnos = 6 mensajes)
-            historial = self.get_conversation_history(telefono, limit=6)
+            # Get conversation history (limitado a 2 turnos = 4 mensajes)
+            historial = self.get_conversation_history(telefono, limit=4)
             
             # Get or create lead
             lead = self.get_or_create_lead(telefono, nombre_usuario)
@@ -326,10 +328,10 @@ class ConversationService:
                 {"role": "system", "content": system_context}
             ]
             
-            # Add conversation history (máximo 3 turnos = 6 mensajes)
+            # Add conversation history (máximo 2 turnos = 4 mensajes)
             historial_procesado = 0
             for item in reversed(historial):
-                if historial_procesado >= 6:  # Máximo 6 mensajes (3 turnos)
+                if historial_procesado >= 4:  # Máximo 4 mensajes (2 turnos)
                     break
                 context_messages.append({"role": "user", "content": item.get('mensaje', '')})
                 context_messages.append({"role": "assistant", "content": item.get('respuesta', '')})
@@ -345,7 +347,7 @@ class ConversationService:
             response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=context_messages,
-                max_tokens=200,  # Reducido para respuestas más concisas
+                max_tokens=150,  # Reducido de 200 a 150 para respuestas más concisas
                 temperature=temperature,  # Temperatura dinámica según contexto
                 presence_penalty=0.2,  # Aumentado para evitar repetición
                 frequency_penalty=0.2  # Aumentado para mayor variedad

@@ -1,16 +1,49 @@
-# 🚗 Nissan WhatsApp Bot - Sistema Avanzado de Ventas
+# 🤖 Chatbot Nissan - WhatsApp Business + Chatwoot
 
-## 📋 Descripción
+Sistema inteligente de ventas automotrices integrado con WhatsApp Business a través de Chatwoot, con inteligencia artificial GPT-4 y sistema RAG para respuestas contextuales.
 
-Bot inteligente de WhatsApp para concesionario Nissan con funcionalidades avanzadas de:
-- 🧠 **Análisis de sentimientos con IA**
-- 📊 **Dashboard moderno con diseño responsive**
-- 🔔 **Sistema de notificaciones push**
-- 🎯 **Seguimiento inteligente adaptativo**
-- 💬 **Memoria de conversación mejorada**
-- 📈 **Tracking completo de leads**
-- 📱 **Sistema de plantillas WhatsApp Business**
-- 🔄 **Gestión automática de tokens**
+## 🏗️ Arquitectura del Sistema
+
+```
+Cliente WhatsApp → WhatsApp Business → Chatwoot → Bot → Chatwoot → WhatsApp Business → Cliente
+```
+
+### ✅ Nueva Arquitectura (Actual)
+- **WhatsApp Business** integrado nativamente con **Chatwoot**
+- **Chatwoot** como middleware central de conversaciones
+- **Bot Python** conectado solo a Chatwoot API
+- **Sin dependencias** de Meta Developers API directa
+
+### ❌ Arquitectura Anterior (Deprecada)
+- ~~Meta Developers API directa~~
+- ~~Manejo manual de tokens WhatsApp~~
+- ~~Webhooks duales (WhatsApp + Chatwoot)~~
+
+## 🚀 Características Principales
+
+### 🧠 Inteligencia Artificial
+- **OpenAI GPT-4** para generación de respuestas
+- **Sistema RAG** (Retrieval Augmented Generation) con Supabase
+- **Temperaturas dinámicas** según contexto de conversación
+- **Análisis de intención** de mensajes
+
+### 📊 Gestión de Leads
+- **Tracking automático** de leads en Supabase
+- **Scoring dinámico** basado en interacciones
+- **Estados de lead** (nuevo, interesado, caliente, etc.)
+- **Seguimiento proactivo** automatizado
+
+### 💬 Conversaciones
+- **Historial persistente** en base de datos
+- **Prevención de duplicados** de mensajes
+- **Respuestas contextuales** basadas en historial
+- **Soporte para imágenes** de vehículos
+
+### 🎯 Contactos Proactivos
+- **Mensajes programados** diferidos
+- **Plantillas WhatsApp Business** automatizadas
+- **Campañas de seguimiento** personalizadas
+- **Integración completa** con Chatwoot
 
 ## 🚀 Funcionalidades Principales
 

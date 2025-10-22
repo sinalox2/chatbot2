@@ -1360,24 +1360,10 @@ def mark_message_as_processed(message_id: str):
     """Marca un mensaje como procesado"""
     mensajes_procesados[message_id] = time.time()
 
-def send_typing_indicator(telefono: str):
-    """DEPRECADO: Indicador de escritura - Chatwoot maneja esto automáticamente"""
-    print(f"⚠️ [DEPRECADO] Indicador de escritura solicitado para {telefono} - Chatwoot lo maneja automáticamente")
-    return True
-
-def send_whatsapp_response(telefono: str, mensaje: str):
-    """DEPRECADO: Envío directo a WhatsApp - Usar Chatwoot únicamente"""
-    print(f"⚠️ [DEPRECADO] Intento de envío directo a WhatsApp para {telefono}")
-    print(f"💡 Usar enviar_mensaje_publico() de Chatwoot en su lugar")
-    print(f"📱 Mensaje que se intentó enviar: {mensaje[:50]}...")
-    return False
-
-def send_whatsapp_image(telefono: str, image_path: str):
-    """DEPRECADO: Envío de imagen directo - Usar Chatwoot para manejar archivos"""
-    print(f"⚠️ [DEPRECADO] Intento de envío de imagen directo para {telefono}")
-    print(f"📸 Imagen que se intentó enviar: {image_path}")
-    print(f"💡 Configurar envío de archivos a través de Chatwoot")
-    return False
+# Funciones deprecadas eliminadas - se usaba solo Chatwoot
+# send_typing_indicator() - Chatwoot maneja automáticamente
+# send_whatsapp_response() - Reemplazado por enviar_mensaje_publico()
+# send_whatsapp_image() - Reemplazado por notas privadas en Chatwoot
 
 def send_message_to_chatwoot(telefono: str, mensaje: str):
     """Envía mensaje también a Chatwoot para que aparezca en la interfaz"""
