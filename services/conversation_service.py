@@ -57,17 +57,17 @@ class ConversationService:
             print(f"⚠️ Error cargando prompt desde archivo: {e}")
             return "Eres César Arias, asesor de ventas de Nissan Tijuana. Responde de manera amigable y profesional."
     
-    def get_conversation_history(self, telefono: str, limit: int = 4) -> List[Dict]:
+    def get_conversation_history(self, telefono: str, limit: int = 6) -> List[Dict]:
         """
         Obtiene el historial de conversación de un cliente
-        OPTIMIZADO: Limitado a últimos 4 mensajes (2 turnos completos) para reducir tokens
+        OPTIMIZADO: Limitado a últimos 6 mensajes (3 turnos completos) para mejor contexto
         """
         try:
             if not supabase:
                 return []
             
-            # Limitar a máximo 4 mensajes para optimizar tokens (reducido de 6)
-            limit = min(limit, 4)
+            # Aumentado a 6 mensajes para mejor contexto conversacional
+            limit = min(limit, 6)
             
             response = supabase.table('historial_conversaciones')\
                 .select('*')\
@@ -299,8 +299,8 @@ class ConversationService:
             if not self.client:
                 return "Disculpa, tengo problemas técnicos. ¿Puedes intentar más tarde? 😅"
             
-            # Get conversation history (limitado a 2 turnos = 4 mensajes)
-            historial = self.get_conversation_history(telefono, limit=4)
+            # Get conversation history (limitado a 3 turnos = 6 mensajes)
+            historial = self.get_conversation_history(telefono, limit=6)
             
             # Get or create lead
             lead = self.get_or_create_lead(telefono, nombre_usuario)
@@ -328,10 +328,10 @@ class ConversationService:
                 {"role": "system", "content": system_context}
             ]
             
-            # Add conversation history (máximo 2 turnos = 4 mensajes)
+            # Add conversation history (máximo 3 turnos = 6 mensajes)
             historial_procesado = 0
             for item in reversed(historial):
-                if historial_procesado >= 4:  # Máximo 4 mensajes (2 turnos)
+                if historial_procesado >= 6:  # Máximo 6 mensajes (3 turnos)
                     break
                 context_messages.append({"role": "user", "content": item.get('mensaje', '')})
                 context_messages.append({"role": "assistant", "content": item.get('respuesta', '')})
@@ -347,7 +347,7 @@ class ConversationService:
             response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=context_messages,
-                max_tokens=150,  # Reducido de 200 a 150 para respuestas más concisas
+                max_tokens=180,  # Aumentado a 180 para permitir referencias contextuales
                 temperature=temperature,  # Temperatura dinámica según contexto
                 presence_penalty=0.2,  # Aumentado para evitar repetición
                 frequency_penalty=0.2  # Aumentado para mayor variedad
@@ -467,9 +467,12 @@ class ConversationService:
                 context += f"- Pregunta qué modelo específico le interesa\n"
             context += "\n"
         
-        context += "INSTRUCCIONES:\n"
+        context += "INSTRUCCIONES CRÍTICAS:\n"
         context += "- Respuesta: 1-3 líneas máximo\n"
-        context += "- SOLO usa información del contexto RAG\n"
+        context += "- MEMORIA: Revisa SIEMPRE el historial conversacional para mantener coherencia\n"
+        context += "- CONTINUIDAD: Conecta tu respuesta con mensajes anteriores del cliente\n"
+        context += "- REFERENCIAS: Si ya discutiste algo, refiérete específicamente (ej: 'Como te mencioné del Sentra...')\n"
+        context += "- SOLO usa información del contexto RAG para datos técnicos\n"
         context += "- Si no sabes algo: 'déjame verificar esa información'\n"
         context += "- Usa emojis moderadamente\n"
         
