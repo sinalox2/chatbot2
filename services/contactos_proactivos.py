@@ -328,23 +328,103 @@ class ContactosProactivosService:
                         self.marcar_contacto_error(contacto['id'], "Error enviando mensaje personalizado")
                         
                 elif template_whatsapp:
-                    # FALLBACK: Si hay plantilla pero no está marcado, usar plantilla
+                    # FALLBACK: Si hay plantilla pero no está marcado, usar plantilla CON flujo Chatwoot
                     print(f"📱 FALLBACK - Enviando plantilla '{template_whatsapp}' a {contacto['nombre']} ({telefono})")
                     
-                    if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
-                        self.marcar_contacto_enviado(contacto['id'])
+                    # LÓGICA REORDENADA: Priorizar contactos nuevos
+                    try:
+                        from chatwoot_api import buscar_contacto, crear_contacto, crear_conversacion, crear_mensaje_privado, obtener_conversacion_por_telefono
                         
-                        # Intentar agregar nota a Chatwoot también para plantillas fallback
-                        try:
-                            from chatwoot_api import obtener_conversacion_por_telefono, crear_mensaje_privado
+                        print(f"🤖 [FALLBACK] Iniciando flujo optimizado para {telefono}...")
+                        
+                        # 1. PRIMERO: Buscar contacto existente
+                        chatwoot_contact = buscar_contacto(telefono)
+                        contact_id = None
+                        es_contacto_nuevo = False
+                        
+                        if chatwoot_contact:
+                            contact_id = chatwoot_contact.get('id')
+                            print(f"✅ [FALLBACK] Contacto existente encontrado - ID: {contact_id}")
+                        else:
+                            print(f"📞 [FALLBACK] Contacto NO existe, creando uno nuevo...")
+                            chatwoot_contact = crear_contacto(contacto.get('nombre', 'Contacto Proactivo'), telefono)
+                            if chatwoot_contact and chatwoot_contact.get('id'):
+                                contact_id = chatwoot_contact.get('id')
+                                es_contacto_nuevo = True
+                                print(f"✅ [FALLBACK] Contacto NUEVO creado - ID: {contact_id}")
+                            else:
+                                print(f"❌ [FALLBACK] Error creando contacto, abortando flujo Chatwoot")
+                                # Fallback sin Chatwoot
+                                if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
+                                    self.marcar_contacto_enviado(contacto['id'])
+                                return
+                        
+                        # 2. SEGUNDO: Manejar conversación según si es nuevo o existente
+                        conversation_id = None
+                        
+                        if es_contacto_nuevo:
+                            print(f"💬 [FALLBACK] Creando conversación para contacto NUEVO...")
+                            conversacion = crear_conversacion(contact_id)
+                            if conversacion:
+                                conversation_id = conversacion.get('id')
+                                print(f"✅ [FALLBACK] Conversación NUEVA creada - ID: {conversation_id}")
+                            else:
+                                print(f"❌ [FALLBACK] Error creando conversación")
+                        else:
+                            print(f"🔍 [FALLBACK] Buscando conversación existente...")
                             conversacion = obtener_conversacion_por_telefono(telefono)
                             if conversacion:
-                                mensaje_plantilla = self.generar_mensaje_para_plantilla(template_whatsapp, contacto)
-                                nota_privada = f"🤖 [Plantilla WhatsApp: {template_whatsapp}] ENVIADA\n\n📱 Contenido:\n{mensaje_plantilla}\n\n📊 Contexto: {contacto.get('contexto', 'Sin contexto')}\n💼 Campaña: {contacto.get('tipo_campana', 'seguimiento')}"
-                                crear_mensaje_privado(conversacion.get('id'), nota_privada)
-                                print(f"📝 Nota privada fallback agregada a Chatwoot")
-                        except Exception as e:
-                            print(f"⚠️ No se pudo agregar nota a Chatwoot: {e}")
+                                conversation_id = conversacion.get('id')
+                                print(f"✅ [FALLBACK] Conversación existente encontrada - ID: {conversation_id}")
+                            else:
+                                print(f"💬 [FALLBACK] No hay conversación, creando una nueva...")
+                                conversacion = crear_conversacion(contact_id)
+                                if conversacion:
+                                    conversation_id = conversacion.get('id')
+                                    print(f"✅ [FALLBACK] Nueva conversación creada - ID: {conversation_id}")
+                        
+                        # 3. TERCERO: Crear nota privada ANTES de enviar (si tenemos conversación)
+                        if conversation_id:
+                            mensaje_plantilla = self.generar_mensaje_para_plantilla(template_whatsapp, contacto)
+                            tipo_contacto = "NUEVO" if es_contacto_nuevo else "EXISTENTE"
+                            
+                            nota_privada_previa = f"📋 [CONTACTO {tipo_contacto} - FALLBACK] - Preparando envío\n\n👤 Cliente: {contacto.get('nombre', 'Sin nombre')}\n📱 Teléfono: {telefono}\n🎯 Plantilla: {template_whatsapp}\n💼 Campaña: {contacto.get('tipo_campana', 'seguimiento')}\n📊 Contexto: {contacto.get('contexto', 'Sin contexto')}\n\n📝 Contenido que se enviará:\n{mensaje_plantilla}\n\n⏳ Estado: Preparando envío..."
+                            
+                            print(f"📝 [FALLBACK] Creando nota privada previa en conversación {conversation_id}")
+                            nota_resultado = crear_mensaje_privado(conversation_id, nota_privada_previa)
+                            
+                            if nota_resultado:
+                                print(f"✅ [FALLBACK] Nota privada creada exitosamente - ID: {nota_resultado.get('id')}")
+                            else:
+                                print(f"❌ [FALLBACK] Error creando nota privada")
+                        
+                        # 4. CUARTO: Enviar plantilla de WhatsApp
+                        print(f"📱 [FALLBACK] Enviando plantilla '{template_whatsapp}'...")
+                        if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
+                            self.marcar_contacto_enviado(contacto['id'])
+                            print(f"✅ [FALLBACK] Plantilla enviada exitosamente")
+                            
+                            # 5. QUINTO: Crear nota de confirmación (si tenemos conversación)
+                            if conversation_id:
+                                nota_confirmacion = f"✅ [PLANTILLA ENVIADA - {tipo_contacto}]\n\n📱 Plantilla '{template_whatsapp}' enviada a {telefono}\n📅 Enviado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n🔔 El cliente debería recibir el mensaje por WhatsApp\n\n💡 Tip: Puedes responder a esta conversación si el cliente contesta"
+                                
+                                confirmacion_resultado = crear_mensaje_privado(conversation_id, nota_confirmacion)
+                                if confirmacion_resultado:
+                                    print(f"✅ [FALLBACK] Nota confirmación creada - ID: {confirmacion_resultado.get('id')}")
+                                else:
+                                    print(f"❌ [FALLBACK] Error creando nota de confirmación")
+                        else:
+                            print(f"❌ [FALLBACK] Error enviando plantilla")
+                            # Crear nota de error si tenemos conversación
+                            if conversation_id:
+                                nota_error = f"❌ [ERROR AL ENVIAR PLANTILLA - {tipo_contacto}]\n\n📱 Plantilla '{template_whatsapp}' NO se pudo enviar a {telefono}\n📅 Intento: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n🚨 Revisar configuración de WhatsApp\n\n💡 Puedes intentar enviar manualmente o contactar por otro medio"
+                                crear_mensaje_privado(conversation_id, nota_error)
+                            self.marcar_contacto_error(contacto['id'], "Error enviando plantilla de WhatsApp")
+                    except Exception as e:
+                        print(f"⚠️ [FALLBACK] Error en flujo Chatwoot: {e}, enviando solo WhatsApp")
+                        # Fallback del fallback: solo WhatsApp
+                        if self.enviar_plantilla_whatsapp(telefono, template_whatsapp, contacto):
+                            self.marcar_contacto_enviado(contacto['id'])
                         
                         if supabase:
                             contexto_text = (contacto.get('contexto') or '')[:100]

@@ -61,9 +61,9 @@ except ImportError as e:
 try:
     from services.whatsapp_service import whatsapp_service
     WHATSAPP_SERVICE_AVAILABLE = True
-    print("✅ WhatsApp service importado correctamente")
+    print("⚠️ WhatsApp service importado - NOTA: Usando integración Chatwoot, servicio directo deshabilitado")
 except ImportError as e:
-    print(f"⚠️ Error importando WhatsApp service: {e}")
+    print(f"✅ WhatsApp service no importado (correcto para integración Chatwoot): {e}")
     WHATSAPP_SERVICE_AVAILABLE = False
 
 try:
@@ -460,9 +460,33 @@ def api_process_file():
             # Procesar CSV
             import csv
             import io
+            import chardet
+            
+            # Detectar encoding automáticamente
+            file_content = file.stream.read()
+            detected_encoding = chardet.detect(file_content)
+            encoding = detected_encoding.get('encoding', 'utf-8')
+            
+            print(f"📊 Encoding detectado: {encoding} (confianza: {detected_encoding.get('confidence', 0):.2f})")
+            
+            # Intentar diferentes encodings si falla
+            encodings_to_try = [encoding, 'utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            
+            decoded_content = None
+            for enc in encodings_to_try:
+                try:
+                    decoded_content = file_content.decode(enc)
+                    print(f"✅ Decodificado exitosamente con encoding: {enc}")
+                    break
+                except UnicodeDecodeError:
+                    print(f"❌ Error con encoding: {enc}")
+                    continue
+            
+            if not decoded_content:
+                return jsonify({'error': 'No se pudo decodificar el archivo. Intenta guardar el CSV con encoding UTF-8.'}), 400
             
             # Leer contenido
-            stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+            stream = io.StringIO(decoded_content, newline=None)
             csv_input = csv.reader(stream)
             
             headers = next(csv_input)
@@ -478,11 +502,58 @@ def api_process_file():
         
         elif file.filename.endswith(('.xlsx', '.xls')):
             # Procesar Excel
-            import pandas as pd
+            try:
+                import pandas as pd
+                print("✅ Pandas importado exitosamente")
+            except ImportError:
+                return jsonify({'error': 'pandas no está instalado. Instálalo con: pip install pandas'}), 400
             
-            df = pd.read_excel(file)
+            try:
+                # Leer el contenido del archivo en memoria
+                file.stream.seek(0)  # Asegurar que estamos al inicio del archivo
+                file_content = file.stream.read()
+                
+                # Crear un BytesIO object para pandas
+                import io
+                excel_buffer = io.BytesIO(file_content)
+                
+                # Intentar leer con openpyxl para .xlsx o xlrd para .xls
+                if file.filename.endswith('.xlsx'):
+                    df = pd.read_excel(excel_buffer, engine='openpyxl')
+                else:  # .xls
+                    df = pd.read_excel(excel_buffer, engine='xlrd')
+                    
+                print(f"📊 Excel leído exitosamente: {df.shape[0]} filas, {df.shape[1]} columnas")
+                
+            except ImportError as e:
+                if 'openpyxl' in str(e):
+                    return jsonify({'error': 'openpyxl no está instalado. Instálalo con: pip install openpyxl'}), 400
+                elif 'xlrd' in str(e):
+                    return jsonify({'error': 'xlrd no está instalado. Instálalo con: pip install xlrd'}), 400
+                else:
+                    return jsonify({'error': f'Error de dependencia: {str(e)}'}), 400
+            except Exception as e:
+                return jsonify({'error': f'Error procesando Excel: {str(e)}'}), 400
+            
+            # Convertir DataFrame a listas
             headers = df.columns.tolist()
             rows = df.values.tolist()
+            
+            # Convertir NaN values a strings vacíos y manejar tipos de datos
+            for i, row in enumerate(rows):
+                new_row = []
+                for cell in row:
+                    if pd.isna(cell):
+                        new_row.append('')
+                    elif isinstance(cell, (int, float)):
+                        # Preservar números como strings para teléfonos
+                        if isinstance(cell, float) and cell.is_integer():
+                            new_row.append(str(int(cell)))
+                        else:
+                            new_row.append(str(cell))
+                    else:
+                        new_row.append(str(cell))
+                rows[i] = new_row
             
             return jsonify({
                 'success': True,
@@ -766,6 +837,106 @@ def api_whatsapp_test_message():
             'result': result,
             'message': 'Mensaje de prueba enviado' if result.get('success') else 'Error enviando mensaje de prueba'
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai/temperature/config')
+def api_get_temperature_config():
+    """API endpoint para obtener configuración actual de temperaturas"""
+    try:
+        from config import get_config
+        config = get_config()()
+        
+        return jsonify({
+            'success': True,
+            'temperature_config': {
+                'default': config.TEMPERATURE_DEFAULT,
+                'precise': config.TEMPERATURE_PRECISE,
+                'financing': config.TEMPERATURE_FINANCING,
+                'creative': config.TEMPERATURE_CREATIVE,
+                'greeting': config.TEMPERATURE_GREETING
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai/temperature/test', methods=['POST'])
+def api_test_temperature():
+    """API endpoint para probar respuesta con temperatura específica"""
+    try:
+        data = request.get_json()
+        mensaje = data.get('mensaje', 'Hola')
+        temperatura = float(data.get('temperatura', 0.4))
+        
+        if CONVERSATION_SERVICE_AVAILABLE:
+            # Simular análisis de intención
+            intent_info = conversation_service.analyze_message_intent(mensaje)
+            
+            # Obtener temperatura recomendada
+            temp_recomendada = conversation_service.get_temperature_for_intent(intent_info)
+            
+            return jsonify({
+                'success': True,
+                'mensaje': mensaje,
+                'intent_detectado': intent_info['intent'],
+                'temperatura_solicitada': temperatura,
+                'temperatura_recomendada': temp_recomendada,
+                'explicacion': f"Para intención '{intent_info['intent']}' se recomienda temperatura {temp_recomendada}"
+            })
+        else:
+            return jsonify({'error': 'Servicio de conversación no disponible'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/ai/financing/test', methods=['POST'])
+def api_test_financing_conversation():
+    """API endpoint para probar conversación de financiamiento"""
+    try:
+        data = request.get_json()
+        mensaje = data.get('mensaje', '¿Qué planes de financiamiento tienen?')
+        
+        if CONVERSATION_SERVICE_AVAILABLE:
+            # Analizar intención y pasos conversacionales
+            intent_info = conversation_service.analyze_message_intent(mensaje)
+            
+            # Simular historial vacío para primera consulta
+            historial_simulado = []
+            
+            # Obtener contexto RAG específico para financiamiento
+            try:
+                from rag.buscador_supabase import recuperar_contexto
+                contexto_rag = recuperar_contexto(mensaje, k=2)
+            except:
+                contexto_rag = "RAG no disponible"
+            
+            # Construir contexto del sistema
+            system_context = conversation_service._build_system_context(
+                lead=None, 
+                intent_info=intent_info, 
+                contexto_rag=contexto_rag
+            )
+            
+            # Obtener temperatura recomendada
+            temperatura = conversation_service.get_temperature_for_intent(intent_info)
+            
+            return jsonify({
+                'success': True,
+                'mensaje_analizado': mensaje,
+                'intent_detectado': intent_info,
+                'temperatura_aplicada': temperatura,
+                'contexto_sistema': system_context[:500] + "..." if len(system_context) > 500 else system_context,
+                'rag_context': contexto_rag[:200] + "..." if len(contexto_rag) > 200 else contexto_rag,
+                'recomendaciones': {
+                    'next_step': intent_info.get('conversation_step', 'initial'),
+                    'should_ask_qualifying_questions': intent_info.get('conversation_step') == 'initial',
+                    'has_vehicle_use': 'uso_vehiculo' in intent_info,
+                    'has_down_payment_info': 'tiene_enganche' in intent_info
+                }
+            })
+        else:
+            return jsonify({'error': 'Servicio de conversación no disponible'}), 500
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1054,11 +1225,12 @@ def webhook():
     return "Method Not Allowed", 405
 
 def process_chatwoot_message(data):
-    """Procesa mensajes entrantes de Chatwoot"""
+    """Procesa mensajes entrantes de Chatwoot (NUEVA ARQUITECTURA: Solo Chatwoot)"""
     try:
         # Extraer información del mensaje de Chatwoot
         mensaje_texto = data.get("content", "").strip()
         source_id = data.get("source_id", "")
+        conversation_id = data.get("conversation", {}).get("id")
         
         # Obtener información del remitente
         sender = data.get("sender", {})
@@ -1066,11 +1238,12 @@ def process_chatwoot_message(data):
         nombre_usuario = sender.get("name", "Cliente")
         
         # Validar que tengamos datos mínimos
-        if not mensaje_texto or not telefono:
-            print("⚠️ Mensaje de Chatwoot inválido: falta contenido o teléfono")
+        if not mensaje_texto or not telefono or not conversation_id:
+            print("⚠️ Mensaje de Chatwoot inválido: falta contenido, teléfono o conversation_id")
             return
         
-        print(f"📱 Procesando mensaje de Chatwoot de {nombre_usuario} ({telefono}): {mensaje_texto}")
+        print(f"📱 [CHATWOOT-ONLY] Procesando mensaje de {nombre_usuario} ({telefono}): {mensaje_texto}")
+        print(f"💬 Conversation ID: {conversation_id}")
         
         # Verificar duplicados usando source_id de Chatwoot
         if is_message_already_processed(source_id):
@@ -1079,9 +1252,6 @@ def process_chatwoot_message(data):
         
         # Marcar mensaje como procesado
         mark_message_as_processed(source_id)
-        
-        # Enviar indicador de escritura antes de generar respuesta
-        send_typing_indicator(telefono)
         
         # Generar respuesta usando el servicio de conversación
         if CONVERSATION_SERVICE_AVAILABLE:
@@ -1092,73 +1262,69 @@ def process_chatwoot_message(data):
                     nombre_usuario=nombre_usuario
                 )
                 
-                # Enviar respuesta
+                # Enviar respuesta SOLO a Chatwoot (que se encarga de WhatsApp)
                 if respuesta:
                     # Manejar nueva estructura de respuesta con posibles imágenes
                     if isinstance(respuesta, dict):
-                        # Nueva estructura con posibles imágenes
                         texto_respuesta = respuesta.get('text', '')
                         
-                        # Enviar por WhatsApp
-                        send_whatsapp_response(telefono, texto_respuesta)
-                        print(f"✅ Mensaje de texto enviado a {telefono}")
-                        
-                        # Enviar respuesta del bot a Chatwoot (para que aparezca en la conversación)
+                        # SOLO enviar a Chatwoot - él se encarga de WhatsApp
                         try:
-                            from chatwoot_api import send_message_to_chatwoot
-                            print(f"🔄 Enviando respuesta del bot a Chatwoot: {texto_respuesta[:50]}...")
-                            resultado = send_message_to_chatwoot(telefono, texto_respuesta)
-                            print(f"📨 Resultado Chatwoot: {resultado}")
+                            from chatwoot_api import enviar_mensaje_publico
+                            print(f"🔄 [CHATWOOT-ONLY] Enviando respuesta del bot: {texto_respuesta[:50]}...")
+                            resultado = enviar_mensaje_publico(conversation_id, texto_respuesta)
+                            
+                            if resultado:
+                                print(f"✅ Respuesta enviada a Chatwoot conversation {conversation_id}")
+                            else:
+                                print(f"❌ Error enviando respuesta a Chatwoot")
                         except Exception as e:
-                            print(f"⚠️ Error enviando respuesta del bot a Chatwoot: {e}")
-                        # Enviar imagen si está disponible
+                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
+                        
+                        # TODO: Manejar imágenes a través de Chatwoot si es necesario
                         if respuesta.get('type') == 'text_with_image':
-                            image_path = respuesta.get('image_path')
-                            if image_path:
-                                send_whatsapp_image(telefono, image_path)
-                                print(f"📸 Imagen enviada a {telefono}: {image_path}")
-                                # Nota: Las imágenes en Chatwoot requieren manejo especial
+                            print(f"📸 [INFO] Cliente solicitó imagen: {respuesta.get('image_path')} - Enviando nota")
+                            try:
+                                from chatwoot_api import crear_mensaje_privado
+                                nota_imagen = f"📸 Cliente solicitó imagen: {respuesta.get('modelo')} ({respuesta.get('image_type')})\n🔗 Ruta: {respuesta.get('image_path')}"
+                                crear_mensaje_privado(conversation_id, nota_imagen)
+                            except Exception as e:
+                                print(f"⚠️ Error creando nota de imagen: {e}")
                     else:
                         # Compatibilidad con respuesta antigua (string)
-                        send_whatsapp_response(telefono, respuesta)
-                        print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
-                        
-                        # Enviar respuesta del bot a Chatwoot (para que aparezca en la conversación)
                         try:
-                            from chatwoot_api import send_message_to_chatwoot
-                            print(f"🔄 Enviando respuesta del bot a Chatwoot: {respuesta[:50]}...")
-                            resultado = send_message_to_chatwoot(telefono, respuesta)
-                            print(f"📨 Resultado Chatwoot: {resultado}")
+                            from chatwoot_api import enviar_mensaje_publico
+                            print(f"🔄 [CHATWOOT-ONLY] Enviando respuesta: {respuesta[:50]}...")
+                            resultado = enviar_mensaje_publico(conversation_id, respuesta)
+                            
+                            if resultado:
+                                print(f"✅ Respuesta enviada a Chatwoot conversation {conversation_id}")
+                            else:
+                                print(f"❌ Error enviando respuesta a Chatwoot")
                         except Exception as e:
-                            print(f"⚠️ Error enviando respuesta del bot a Chatwoot: {e}")
+                            print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
                 else:
                     print(f"⚠️ No se generó respuesta para {telefono}")
                     
             except Exception as e:
                 print(f"❌ Error generando respuesta: {e}")
-                # Respuesta de fallback
+                # Respuesta de fallback SOLO a Chatwoot
                 respuesta_fallback = "Hola! 😅 Tuve un problemita técnico, ¿me puedes escribir en un ratito?"
-                send_whatsapp_response(telefono, respuesta_fallback)
                 
-                # Enviar respuesta de fallback a Chatwoot
                 try:
-                    from chatwoot_api import send_message_to_chatwoot
-                    print(f"🔄 Enviando fallback a Chatwoot: {respuesta_fallback[:50]}...")
-                    resultado = send_message_to_chatwoot(telefono, respuesta_fallback)
-                    print(f"📨 Resultado Chatwoot: {resultado}")
+                    from chatwoot_api import enviar_mensaje_publico
+                    print(f"🔄 [FALLBACK] Enviando mensaje de error...")
+                    enviar_mensaje_publico(conversation_id, respuesta_fallback)
                 except Exception as e:
                     print(f"⚠️ Error enviando fallback a Chatwoot: {e}")
         else:
-            # Respuesta básica si el servicio de conversación no está disponible
+            # Respuesta básica SOLO a Chatwoot
             respuesta_basica = f"¡Hola {nombre_usuario}! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"
-            send_whatsapp_response(telefono, respuesta_basica)
             
-            # Enviar respuesta básica a Chatwoot
             try:
-                from chatwoot_api import send_message_to_chatwoot
-                print(f"🔄 Enviando respuesta básica a Chatwoot: {respuesta_basica[:50]}...")
-                resultado = send_message_to_chatwoot(telefono, respuesta_basica)
-                print(f"📨 Resultado Chatwoot: {resultado}")
+                from chatwoot_api import enviar_mensaje_publico
+                print(f"🔄 [CHATWOOT-ONLY] Enviando respuesta básica...")
+                enviar_mensaje_publico(conversation_id, respuesta_basica)
             except Exception as e:
                 print(f"⚠️ Error enviando respuesta básica a Chatwoot: {e}")
             
@@ -1166,166 +1332,16 @@ def process_chatwoot_message(data):
         print(f"❌ Error procesando mensaje de Chatwoot: {e}")
 
 def process_whatsapp_message(message_data):
-    """Procesa mensajes entrantes de WhatsApp Business API directo"""
-    try:
-        # Verificar si hay mensajes o solo status updates
-        messages = message_data.get("messages", [])
-        statuses = message_data.get("statuses", [])
-        
-        if statuses:
-            print(f"📊 Status update recibido: {len(statuses)} status(es)")
-            for status in statuses:
-                print(f"   📍 Status: {status.get('status')} para {status.get('recipient_id')}")
-            return  # No procesar status updates
-        
-        if not messages:
-            print("⚠️ No hay mensajes para procesar en webhook")
-            return
-        
-        print(f"📱 Procesando {len(messages)} mensaje(s)")
-        
-        for message in messages:
-            # Extraer información del mensaje
-            telefono = message.get("from")
-            message_id = message.get("id")
-            message_type = message.get("type")
-            timestamp = message.get("timestamp")
-            
-            print(f"📲 Mensaje recibido - Tipo: {message_type}, De: {telefono}")
-            
-            # Procesar diferentes tipos de mensajes
-            mensaje_texto = ""
-            
-            if message_type == "text":
-                mensaje_texto = message.get("text", {}).get("body", "")
-            elif message_type == "button":
-                # Mensaje de botón de plantilla
-                button_data = message.get("button", {})
-                mensaje_texto = button_data.get("text", "") or button_data.get("payload", "")
-                print(f"🔘 Botón presionado: {mensaje_texto}")
-            elif message_type == "interactive":
-                # Mensajes interactivos (botones, listas)
-                interactive = message.get("interactive", {})
-                if interactive.get("type") == "button_reply":
-                    button_reply = interactive.get("button_reply", {})
-                    mensaje_texto = button_reply.get("title", "") or button_reply.get("id", "")
-                elif interactive.get("type") == "list_reply":
-                    list_reply = interactive.get("list_reply", {})
-                    mensaje_texto = list_reply.get("title", "") or list_reply.get("id", "")
-                print(f"🎯 Interacción: {mensaje_texto}")
-            else:
-                print(f"⚠️ Tipo de mensaje no soportado: {message_type}")
-                continue
-            
-            if not mensaje_texto.strip():
-                print("⚠️ Mensaje vacío ignorado")
-                continue
-            
-            # Obtener información del contacto
-            contacts = message_data.get("contacts", [])
-            nombre_usuario = None
-            for contact in contacts:
-                if contact.get("wa_id") == telefono:
-                    profile = contact.get("profile", {})
-                    nombre_usuario = profile.get("name")
-                    break
-            
-            print(f"📱 Procesando mensaje de {nombre_usuario or telefono}: {mensaje_texto}")
-            
-            # Verificar duplicados usando ID del mensaje
-            if is_message_already_processed(message_id):
-                print(f"⚠️ Mensaje ya procesado: {message_id}")
-                continue
-            
-            # Marcar mensaje como procesado
-            mark_message_as_processed(message_id)
-            
-            # Primero, enviar el mensaje del cliente a Chatwoot
-            send_customer_message_to_chatwoot(telefono, mensaje_texto, nombre_usuario, message_id)
-            
-            # Enviar indicador de escritura antes de generar respuesta
-            send_typing_indicator(telefono)
-            
-            # Generar respuesta usando el servicio de conversación
-            if CONVERSATION_SERVICE_AVAILABLE:
-                try:
-                    respuesta = conversation_service.generate_response(
-                        telefono=telefono,
-                        mensaje_usuario=mensaje_texto,
-                        nombre_usuario=nombre_usuario
-                    )
-                    
-                    # Enviar respuesta
-                    if respuesta:
-                        # Manejar nueva estructura de respuesta con posibles imágenes
-                        if isinstance(respuesta, dict):
-                            # Nueva estructura con posibles imágenes
-                            texto_respuesta = respuesta.get('text', '')
-                            
-                            # Enviar por WhatsApp
-                            send_whatsapp_response(telefono, texto_respuesta)
-                            print(f"✅ Mensaje de texto enviado a {telefono}")
-                            
-                            # Enviar respuesta del chatbot a Chatwoot
-                            try:
-                                from chatwoot_api import send_message_to_chatwoot
-                                print(f"🔄 Intentando enviar a Chatwoot: {texto_respuesta[:50]}...")
-                                resultado = send_message_to_chatwoot(telefono, texto_respuesta)
-                                print(f"📨 Resultado Chatwoot: {resultado}")
-                            except Exception as e:
-                                print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
-                                import traceback
-                                print(f"Stack trace: {traceback.format_exc()}")
-                            
-                            # Enviar imagen si está disponible
-                            if respuesta.get('type') == 'text_with_image':
-                                image_path = respuesta.get('image_path')
-                                if image_path:
-                                    send_whatsapp_image(telefono, image_path)
-                                    print(f"📸 Imagen enviada a {telefono}: {image_path}")
-                                    # Nota: Las imágenes en Chatwoot requieren manejo especial
-                        else:
-                            # Compatibilidad con respuesta antigua (string)
-                            send_whatsapp_response(telefono, respuesta)
-                            print(f"✅ Respuesta enviada a {telefono}: {respuesta[:50]}...")
-                            
-                            # Enviar respuesta del chatbot a Chatwoot
-                            try:
-                                from chatwoot_api import send_message_to_chatwoot
-                                print(f"🔄 Intentando enviar a Chatwoot: {respuesta[:50]}...")
-                                resultado = send_message_to_chatwoot(telefono, respuesta)
-                                print(f"📨 Resultado Chatwoot: {resultado}")
-                            except Exception as e:
-                                print(f"⚠️ Error enviando respuesta a Chatwoot: {e}")
-                                import traceback
-                                print(f"Stack trace: {traceback.format_exc()}")
-                    else:
-                        print(f"⚠️ No se generó respuesta para {telefono}")
-                        
-                except Exception as e:
-                    print(f"❌ Error generando respuesta: {e}")
-                    # Respuesta de fallback
-                    respuesta_fallback = "Hola! 😅 Tuve un problemita técnico, ¿me puedes escribir en un ratito?"
-                    send_whatsapp_response(telefono, respuesta_fallback)
-                    # Enviar respuesta de fallback a Chatwoot
-                    try:
-                        from chatwoot_api import send_message_to_chatwoot
-                        send_message_to_chatwoot(telefono, respuesta_fallback)
-                    except Exception as e:
-                        print(f"⚠️ Error enviando respuesta de fallback a Chatwoot: {e}")
-            else:
-                # Respuesta básica si el servicio de conversación no está disponible
-                respuesta_basica = f"¡Hola! 😁 Soy César de Nissan. Gracias por escribir. ¿En qué te puedo ayudar?"
-                send_whatsapp_response(telefono, respuesta_basica)
-                # Enviar respuesta básica a Chatwoot
-                try:
-                    from chatwoot_api import send_message_to_chatwoot
-                    send_message_to_chatwoot(telefono, respuesta_basica)
-                except Exception as e:
-                    print(f"⚠️ Error enviando respuesta básica a Chatwoot: {e}")
-            
-    except Exception as e:
-        print(f"❌ Error procesando mensaje de WhatsApp: {e}")
+    """DEPRECADO: WhatsApp Business API directo - Ahora usamos solo Chatwoot"""
+    print("⚠️ [DEPRECADO] Recibido mensaje directo de WhatsApp API - Redirigiendo a Chatwoot")
+    print("💡 Configuración recomendada: Solo usar webhook de Chatwoot")
+    print("📋 Para configurar: WhatsApp Business → Chatwoot → Tu Bot")
+    
+    # Log para debugging si alguien sigue enviando mensajes directos
+    print(f"📊 Datos recibidos: {message_data}")
+    
+    # No procesar - todo debe venir de Chatwoot
+    return
 
 def is_message_already_processed(message_id: str) -> bool:
     """Verifica si un mensaje ya fue procesado"""
@@ -1345,77 +1361,23 @@ def mark_message_as_processed(message_id: str):
     mensajes_procesados[message_id] = time.time()
 
 def send_typing_indicator(telefono: str):
-    """Envía indicador de 'escribiendo' por WhatsApp"""
-    try:
-        if WHATSAPP_SERVICE_AVAILABLE:
-            from services.whatsapp_service import whatsapp_service
-            resultado = whatsapp_service.enviar_typing_indicator(telefono)
-            
-            if resultado.get('success'):
-                print(f"⌨️ Indicador de escritura enviado a {telefono}")
-                return True
-            else:
-                print(f"⚠️ No se pudo enviar indicador de escritura: {resultado.get('error')}")
-                return False
-        else:
-            print(f"⌨️ SIMULADO - Indicador de escritura a {telefono}")
-            return True
-            
-    except Exception as e:
-        print(f"❌ Error enviando indicador de escritura: {e}")
-        return False
+    """DEPRECADO: Indicador de escritura - Chatwoot maneja esto automáticamente"""
+    print(f"⚠️ [DEPRECADO] Indicador de escritura solicitado para {telefono} - Chatwoot lo maneja automáticamente")
+    return True
 
 def send_whatsapp_response(telefono: str, mensaje: str):
-    """Envía respuesta por WhatsApp"""
-    try:
-        if WHATSAPP_SERVICE_AVAILABLE:
-            from services.whatsapp_service import whatsapp_service
-            resultado = whatsapp_service.enviar_mensaje(telefono, mensaje)
-            
-            if not resultado.get('success'):
-                print(f"❌ Error enviando respuesta: {resultado.get('error')}")
-                return False
-            
-            # Log del token renovado si fue necesario
-            if resultado.get('token_renovado'):
-                print("🔄 Token de WhatsApp fue renovado automáticamente")
-                
-            return True
-        else:
-            print(f"📱 SIMULADO - Respuesta a {telefono}: {mensaje}")
-            return True
-            
-    except Exception as e:
-        print(f"❌ Error enviando respuesta de WhatsApp: {e}")
-        return False
+    """DEPRECADO: Envío directo a WhatsApp - Usar Chatwoot únicamente"""
+    print(f"⚠️ [DEPRECADO] Intento de envío directo a WhatsApp para {telefono}")
+    print(f"💡 Usar enviar_mensaje_publico() de Chatwoot en su lugar")
+    print(f"📱 Mensaje que se intentó enviar: {mensaje[:50]}...")
+    return False
 
 def send_whatsapp_image(telefono: str, image_path: str):
-    """Envía imagen por WhatsApp"""
-    try:
-        if WHATSAPP_SERVICE_AVAILABLE:
-            from services.whatsapp_service import whatsapp_service
-            
-            # Construir ruta completa de la imagen
-            full_path = os.path.join(os.path.dirname(__file__), image_path)
-            
-            if not os.path.exists(full_path):
-                print(f"❌ Imagen no encontrada: {full_path}")
-                return False
-            
-            resultado = whatsapp_service.enviar_imagen(telefono, full_path)
-            
-            if not resultado.get('success'):
-                print(f"❌ Error enviando imagen: {resultado.get('error')}")
-                return False
-                
-            return True
-        else:
-            print(f"📸 SIMULADO - Imagen a {telefono}: {image_path}")
-            return True
-            
-    except Exception as e:
-        print(f"❌ Error enviando imagen de WhatsApp: {e}")
-        return False
+    """DEPRECADO: Envío de imagen directo - Usar Chatwoot para manejar archivos"""
+    print(f"⚠️ [DEPRECADO] Intento de envío de imagen directo para {telefono}")
+    print(f"📸 Imagen que se intentó enviar: {image_path}")
+    print(f"💡 Configurar envío de archivos a través de Chatwoot")
+    return False
 
 def send_message_to_chatwoot(telefono: str, mensaje: str):
     """Envía mensaje también a Chatwoot para que aparezca en la interfaz"""

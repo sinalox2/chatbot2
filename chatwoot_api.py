@@ -2,6 +2,10 @@ import requests
 import logging
 import os
 from dotenv import load_dotenv
+import urllib3
+
+# Deshabilitar warnings de SSL para certificados autofirmados
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Cargar variables de entorno
 load_dotenv()
@@ -37,7 +41,7 @@ def buscar_contacto(telefono: str):
     url = f"{CHATWOOT_BASE_URL}/api/v1/accounts/{ACCOUNT_ID}/contacts/search"
     params = {'q': telefono.replace('+', '')}
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         
@@ -59,10 +63,28 @@ def crear_contacto(nombre: str, telefono: str):
         "inbox_id": INBOX_ID
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10, verify=False)
         if response.status_code == 422: # Contacto ya existe
             logging.warning(f"El contacto {telefono} ya existe, buscándolo...")
-            return buscar_contacto(telefono)
+            
+            # Intentar buscar con diferentes formatos de teléfono
+            formatos_telefono = [
+                telefono,  # Formato original
+                f"+{telefono}",  # Con +
+                telefono.replace("+", ""),  # Sin +
+                telefono.replace("+52", ""),  # Sin código país
+                f"+52{telefono.replace('+52', '').replace('+', '')}"  # Con +52
+            ]
+            
+            for formato in formatos_telefono:
+                contacto_existente = buscar_contacto(formato)
+                if contacto_existente:
+                    logging.info(f"Contacto encontrado con formato: {formato}")
+                    return contacto_existente
+            
+            # Si no se encuentra con ningún formato, devolver None
+            logging.error(f"No se pudo encontrar el contacto {telefono} con ningún formato")
+            return None
         
         if not response.ok:
             _handle_request_error(response)
@@ -85,7 +107,7 @@ def crear_conversacion(contact_id: int):
         "inbox_id": INBOX_ID
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         return response.json()
@@ -102,7 +124,7 @@ def crear_mensaje_privado(conversation_id: int, mensaje: str):
         "message_type": "outgoing"
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         return response.json()
@@ -119,7 +141,7 @@ def enviar_mensaje_publico(conversation_id: int, mensaje: str):
         "message_type": "outgoing"
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         logging.info(f"✅ Mensaje público enviado a conversación {conversation_id}")
@@ -145,7 +167,7 @@ def enviar_mensaje_incoming(conversation_id: int, mensaje: str, phone_number: st
         "source_id": source_id
     }
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
+        response = requests.post(url, headers=headers, json=data, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         logging.info(f"✅ Mensaje del cliente enviado a conversación {conversation_id}")
@@ -171,7 +193,7 @@ def obtener_conversacion_por_telefono(telefono: str):
     }
     
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10, verify=False)
         if not response.ok:
             _handle_request_error(response)
         
@@ -190,7 +212,7 @@ def obtener_conversacion_por_telefono(telefono: str):
         
         # Buscar todas las conversaciones (no solo abiertas)
         params_all = {'inbox_id': INBOX_ID}
-        response_all = requests.get(url, headers=headers, params=params_all, timeout=10)
+        response_all = requests.get(url, headers=headers, params=params_all, timeout=10, verify=False)
         
         if response_all.ok:
             data_all = response_all.json()

@@ -14,6 +14,7 @@ try:
     from supabase_client import supabase
     from services.lead_tracking_service import LeadTrackingService
     from models.lead_tracking import EstadoLead, TemperaturaMercado
+    from config import get_config
     RAG_AVAILABLE = True
 except ImportError as e:
     RAG_AVAILABLE = False
@@ -27,6 +28,7 @@ class ConversationService:
         self.client = None
         self.system_prompt = self._load_system_prompt()
         self.lead_service = LeadTrackingService() if 'LeadTrackingService' in globals() else None
+        self.config = get_config()() if 'get_config' in globals() else None
         self._setup_openai()
         
     def _setup_openai(self):
@@ -41,7 +43,7 @@ class ConversationService:
     def _load_system_prompt(self) -> str:
         """Carga el prompt del sistema desde el archivo"""
         try:
-            prompt_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt_sistema_nissan.txt')
+            prompt_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'prompt_sistema_nissan.md')
             with open(prompt_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 # Extract just the prompt text, remove the function definition
@@ -185,7 +187,8 @@ class ConversationService:
         intent_info = {
             'intent': 'general',
             'entities': {},
-            'urgency': 'normal'
+            'urgency': 'normal',
+            'conversation_step': 'initial'
         }
         
         # Detect greeting
@@ -215,7 +218,78 @@ class ConversationService:
         if any(word in mensaje_lower for word in ['urgente', 'rápido', 'pronto', 'ya', 'hoy']):
             intent_info['urgency'] = 'high'
         
+        # Detect financing conversation steps
+        if intent_info['intent'] == 'financing_inquiry':
+            intent_info.update(self._analyze_financing_step(mensaje_lower))
+        
         return intent_info
+    
+    def _analyze_financing_step(self, mensaje_lower: str) -> Dict:
+        """Analiza en qué paso de la conversación de financiamiento estamos"""
+        step_info = {'conversation_step': 'initial'}
+        
+        # Detectar respuestas a preguntas de calificación
+        if any(word in mensaje_lower for word in ['personal', 'particular', 'familia', 'uso personal']):
+            step_info['conversation_step'] = 'uso_personal'
+            step_info['uso_vehiculo'] = 'personal'
+        
+        elif any(word in mensaje_lower for word in ['trabajo', 'uber', 'comercial', 'negocio', 'taxi', 'app']):
+            step_info['conversation_step'] = 'uso_comercial' 
+            step_info['uso_vehiculo'] = 'comercial'
+        
+        elif any(word in mensaje_lower for word in ['transporte', 'urvan', 'publico', 'pasajeros']):
+            step_info['conversation_step'] = 'uso_urvan'
+            step_info['uso_vehiculo'] = 'urvan'
+        
+        # Detectar información sobre enganche
+        if any(word in mensaje_lower for word in ['sin enganche', 'no tengo', 'no cuento', 'poco dinero']):
+            step_info['tiene_enganche'] = False
+            
+        elif any(word in mensaje_lower for word in ['si tengo', 'si cuento', 'tengo', 'disponible']):
+            step_info['tiene_enganche'] = True
+            
+        # Detectar solicitud de cita
+        if any(word in mensaje_lower for word in ['cita', 'visita', 'ir', 'agencia', 'oficina']):
+            step_info['conversation_step'] = 'solicita_cita'
+        
+        return step_info
+    
+    def get_temperature_for_intent(self, intent_info: Dict, urgency: str = 'normal') -> float:
+        """Selecciona la temperatura óptima según el contexto de la conversación"""
+        try:
+            if not self.config:
+                return 0.4  # Default fallback
+            
+            intent = intent_info.get('intent', 'general')
+            
+            # Temperaturas específicas por tipo de intención
+            if intent == 'price_inquiry':
+                # Consultas de precios requieren máxima precisión
+                return self.config.TEMPERATURE_PRECISE  # 0.2
+            
+            elif intent == 'financing_inquiry':
+                # Consultas de financiamiento: precisas pero conversacionales
+                return self.config.TEMPERATURE_FINANCING  # 0.3
+            
+            elif intent == 'greeting':
+                # Saludos pueden ser más naturales y variados
+                return self.config.TEMPERATURE_GREETING  # 0.6
+                
+            elif intent in ['appointment_request', 'product_inquiry']:
+                # Consultas de productos y citas: balanceado pero preciso
+                return self.config.TEMPERATURE_DEFAULT  # 0.4
+                
+            elif urgency == 'high':
+                # Situaciones urgentes requieren respuestas más directas
+                return self.config.TEMPERATURE_PRECISE  # 0.2
+                
+            else:
+                # Conversación general
+                return self.config.TEMPERATURE_DEFAULT  # 0.4
+                
+        except Exception as e:
+            print(f"⚠️ Error obteniendo temperatura: {e}")
+            return 0.4  # Safe default
     
     def generate_response(self, telefono: str, mensaje_usuario: str, nombre_usuario: Optional[str] = None) -> str:
         """Genera una respuesta usando OpenAI y el contexto RAG"""
@@ -264,12 +338,15 @@ class ConversationService:
             # Add current message
             context_messages.append({"role": "user", "content": mensaje_usuario})
             
+            # Get optimal temperature for this conversation context
+            temperature = self.get_temperature_for_intent(intent_info, intent_info.get('urgency', 'normal'))
+            
             # Generate response with OpenAI
             response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=context_messages,
                 max_tokens=200,  # Reducido para respuestas más concisas
-                temperature=0.6,  # Reducido para respuestas más consistentes
+                temperature=temperature,  # Temperatura dinámica según contexto
                 presence_penalty=0.2,  # Aumentado para evitar repetición
                 frequency_penalty=0.2  # Aumentado para mayor variedad
             )
@@ -278,7 +355,7 @@ class ConversationService:
             
             # Log token usage and conversation info
             tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
-            print(f"📞 {telefono} | 📨 {mensaje_usuario[:50]}... | 📤 {respuesta[:50]}... | 🔍 RAG: {'✅' if usa_rag else '❌'} | 🎫 Tokens: {tokens_used}")
+            print(f"📞 {telefono} | 📨 {mensaje_usuario[:50]}... | 📤 {respuesta[:50]}... | 🔍 RAG: {'✅' if usa_rag else '❌'} | 🌡️ Temp: {temperature} | 🎫 Tokens: {tokens_used}")
             
             # Prepare response with potential image
             response_data = {
@@ -350,6 +427,24 @@ class ConversationService:
             context += f"CONTEXTO DE LA CONVERSACIÓN:\n"
             context += f"- Intención detectada: {intent_info['intent']}\n"
             context += f"- Urgencia: {intent_info['urgency']}\n"
+            
+            # Add financing-specific context
+            if intent_info['intent'] == 'financing_inquiry':
+                context += f"- Paso de conversación: {intent_info.get('conversation_step', 'initial')}\n"
+                if intent_info.get('uso_vehiculo'):
+                    context += f"- Uso del vehículo: {intent_info['uso_vehiculo']}\n"
+                if 'tiene_enganche' in intent_info:
+                    enganche_status = "Sí tiene enganche" if intent_info['tiene_enganche'] else "No tiene enganche"
+                    context += f"- Enganche disponible: {enganche_status}\n"
+                    
+                # Add specific instructions based on conversation step
+                if intent_info.get('conversation_step') == 'initial':
+                    context += f"- ACCIÓN: Hacer preguntas calificadoras (uso y enganche)\n"
+                elif intent_info.get('uso_vehiculo') and 'tiene_enganche' in intent_info:
+                    context += f"- ACCIÓN: Recomendar plan específico y ofrecer cita\n"
+                elif intent_info.get('conversation_step') == 'solicita_cita':
+                    context += f"- ACCIÓN: Agendar cita en agencia\n"
+            
             if intent_info['entities']:
                 context += f"- Entidades: {intent_info['entities']}\n"
             context += "\n"
