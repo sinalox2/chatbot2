@@ -15,9 +15,11 @@ try:
     from services.lead_tracking_service import LeadTrackingService
     from models.lead_tracking import EstadoLead, TemperaturaMercado
     from config import get_config
+    from utils.logger import Logger
     RAG_AVAILABLE = True
 except ImportError as e:
     RAG_AVAILABLE = False
+    from utils.logger import Logger
     def recuperar_contexto(query, k=3):
         return "Sistema RAG no disponible."
 
@@ -38,7 +40,7 @@ class ConversationService:
             openai.api_key = api_key
             self.client = openai
         else:
-            print("⚠️ OpenAI API key not found")
+            Logger.warning("OpenAI API key not found", "OPENAI")
     
     def _load_system_prompt(self) -> str:
         """Carga el prompt del sistema desde el archivo .md"""
@@ -54,7 +56,7 @@ class ConversationService:
                 # Si es markdown puro, usar todo el contenido
                 return content.strip()
         except Exception as e:
-            print(f"⚠️ Error cargando prompt desde archivo: {e}")
+            Logger.error(f"Error cargando prompt desde archivo: {e}", "PROMPT")
             return "Eres César Arias, asesor de ventas de Nissan Tijuana. Responde de manera amigable y profesional."
     
     def get_conversation_history(self, telefono: str, limit: int = 6) -> List[Dict]:
@@ -290,7 +292,7 @@ class ConversationService:
                 return self.config.TEMPERATURE_DEFAULT  # 0.4
                 
         except Exception as e:
-            print(f"⚠️ Error obteniendo temperatura: {e}")
+            Logger.warning(f"Error obteniendo temperatura: {e}", "CONFIG")
             return 0.4  # Safe default
     
     def generate_response(self, telefono: str, mensaje_usuario: str, nombre_usuario: Optional[str] = None) -> str:
@@ -355,9 +357,12 @@ class ConversationService:
             
             respuesta = response.choices[0].message.content.strip()
             
-            # Log token usage and conversation info
+            # Log token usage and conversation info using the new Logger
+            Logger.incoming(telefono, mensaje_usuario)
+            Logger.rag_info(usa_rag, contexto_rag)
+            
             tokens_used = response.usage.total_tokens if hasattr(response, 'usage') else 0
-            print(f"📞 {telefono} | 📨 {mensaje_usuario[:50]}... | 📤 {respuesta[:50]}... | 🔍 RAG: {'✅' if usa_rag else '❌'} | 🌡️ Temp: {temperature} | 🎫 Tokens: {tokens_used}")
+            Logger.ai_response(respuesta, tokens=tokens_used, temp=temperature)
             
             # Prepare response with potential image
             response_data = {
@@ -391,7 +396,7 @@ class ConversationService:
             return response_data
             
         except Exception as e:
-            print(f"❌ Error {telefono}: {str(e)[:100]}")
+            Logger.error(f"Error {telefono}: {str(e)[:200]}", "SERVICE")
             return {
                 'text': "Disculpa, tuve un problemita técnico 😅 ¿Me puedes repetir tu mensaje?",
                 'type': 'text_only'

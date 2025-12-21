@@ -98,25 +98,73 @@ class SupabaseRAGSearcher:
     
     def _buscar_manual(self, query_embedding: List[float], k: int, umbral: float) -> List[Dict[str, Any]]:
         """
-        Búsqueda manual usando operador de similitud coseno
+        Búsqueda manual usando el operador de similitud pgvector de Supabase (RPC)
+        con fallback manual en Python si el RPC falla.
         """
         try:
-            # Búsqueda general usando embeddings semánticos
-            # Aquí deberíamos implementar búsqueda vectorial real, pero por ahora búsqueda simple
+            # Intentar usar 'buscar_chunks_similares'
+            try:
+                embedding_str = str(query_embedding).replace(' ', '')
+                response = supabase.rpc('buscar_chunks_similares', {
+                    'query_embedding': embedding_str,
+                    'match_threshold': float(umbral),
+                    'match_count': int(k)
+                }).execute()
+                
+                if response.data and len(response.data) > 0:
+                    print(f"✅ Búsqueda vectorial (RPC) exitosa: {len(response.data)} resultados")
+                    return response.data
+            except Exception as e:
+                print(f"⚠️ Error o sin resultados en RPC: {e}")
+
+            # FALLBACK MANUAL: Búsqueda vectorial en memoria
+            # Útil si el RPC no está configurado o falla
+            print("🔄 Iniciando búsqueda vectorial manual (fallback)...")
+            all_chunks = supabase.table(self.tabla).select('id, documento, contenido, metadata, embedding').execute()
             
-            response = supabase.table(self.tabla)\
-                .select('contenido, documento, metadata')\
-                .limit(k * 5)\
-                .execute()
-            
-            if not response.data:
+            if not all_chunks.data:
                 return []
+                
+            import numpy as np
+            import json
             
-            # Retornar primeros resultados (esto debería ser ordenado por similitud vectorial)
-            return response.data[:k]
+            q_v = np.array(query_embedding)
+            results = []
+            
+            for c in all_chunks.data:
+                emb = c.get('embedding')
+                if not emb: continue
+                
+                try:
+                    if isinstance(emb, str):
+                        v = np.array(json.loads(emb))
+                    else:
+                        v = np.array(emb)
+                        
+                    # Similitud coseno
+                    norm_v = np.linalg.norm(v)
+                    norm_q = np.linalg.norm(q_v)
+                    
+                    if norm_v > 0 and norm_q > 0:
+                        sim = np.dot(q_v, v) / (norm_v * norm_q)
+                        if sim >= umbral:
+                            results.append({
+                                'contenido': c['contenido'],
+                                'documento': c['documento'],
+                                'metadata': c['metadata'],
+                                'similarity': float(sim)
+                            })
+                except:
+                    continue
+            
+            # Ordenar por similitud
+            results.sort(key=lambda x: x['similarity'], reverse=True)
+            print(f"✅ Búsqueda manual finalizada: {len(results)} resultados encontrados")
+            
+            return results[:k]
             
         except Exception as e:
-            print(f"❌ Error en búsqueda manual: {e}")
+            print(f"❌ Error crítico en búsqueda: {e}")
             return []
     
     def _buscar_manual_simple(self, query: str, k: int) -> List[Dict[str, Any]]:

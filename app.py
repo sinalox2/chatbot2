@@ -24,30 +24,33 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Agregar directorio dashboard al path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'dashboard'))
 
+# Import logger
+from utils.logger import Logger
+
 # Imports del proyecto
 try:
     from supabase_client import supabase
     SUPABASE_AVAILABLE = True
-    print("✅ Supabase importado correctamente")
+    Logger.success("Supabase importado correctamente", "DB")
 except ImportError as e:
-    print(f"❌ Error importando Supabase: {e}")
+    Logger.error(f"Error importando Supabase: {e}", "DB")
     SUPABASE_AVAILABLE = False
     supabase = None
 
 try:
     from models.lead_tracking import Lead, EstadoLead, TipoInteraccion, Interaccion, TemperaturaMercado, CanalOrigen, ProspectoInfo
     LEAD_TRACKING_AVAILABLE = True
-    print("✅ Lead tracking importado correctamente")
+    Logger.success("Lead tracking importado correctamente", "LEADS")
 except ImportError as e:
-    print(f"❌ Error importando lead tracking: {e}")
+    Logger.error(f"Error importando lead tracking: {e}", "LEADS")
     LEAD_TRACKING_AVAILABLE = False
 
 try:
     from services.lead_tracking_service import LeadTrackingService
     LEAD_SERVICE_AVAILABLE = True
-    print("✅ Lead service importado correctamente")
+    Logger.success("Lead service importado correctamente", "LEADS")
 except ImportError as e:
-    print(f"❌ Error importando lead service: {e}")
+    Logger.error(f"Error importando lead service: {e}", "LEADS")
     LEAD_SERVICE_AVAILABLE = False
 
 try:
@@ -69,9 +72,9 @@ except ImportError as e:
 try:
     from services.conversation_service import conversation_service
     CONVERSATION_SERVICE_AVAILABLE = True
-    print("✅ Conversation service importado correctamente")
+    Logger.success("Conversation service importado correctamente", "CHAT")
 except ImportError as e:
-    print(f"⚠️ Error importando conversation service: {e}")
+    Logger.warning(f"Error importando conversation service: {e}", "CHAT")
     CONVERSATION_SERVICE_AVAILABLE = False
 
 # Import dashboard routes
@@ -1499,20 +1502,25 @@ def inicializar_servicios():
     print("✅ Servicios inicializados")
 
 # Para Railway/Gunicorn
-inicializar_servicios()
+initializer_done = False
+if not initializer_done:
+    inicializar_servicios()
+    initializer_done = True
 
 if __name__ == '__main__':
     # Configuración del servidor para desarrollo local
     try:
         port = int(os.environ.get('PORT', '5001'))
     except (ValueError, TypeError):
-        print("⚠️ PORT inválida, usando 5001")
+        Logger.warning("PORT inválida, usando 5001", "APP")
         port = 5001
     
     debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
     
-    print(f"🌟 Servidor iniciando en puerto {port}")
-    print(f"🔧 Debug mode: {debug}")
-    print(f"📊 Dashboard disponible en: http://localhost:{port}/dashboard")
+    Logger.startup("NISSAN CHATBOT SERVER")
+    Logger.info(f"Puerto: {port}", "APP")
+    Logger.info(f"Debug: {debug}", "APP")
+    Logger.info(f"Dashboard: http://localhost:{port}/dashboard", "APP")
+    Logger.success("Servidor listo y escuchando", "APP")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
